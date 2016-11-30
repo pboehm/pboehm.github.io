@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/db/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/db/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Extracting field names from Django model instance</title>
+      <link>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</link>
+      <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
+      <description>
+
+&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
+On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
+
+&lt;p&gt;When you define your models you can create an optional inner class &lt;code&gt;Meta&lt;/code&gt; which
+holds some settings like field excludes or the table name in DB. Every model
+instance holds an instance of its Meta class. The examples below make use of a
+model called &lt;code&gt;DomainRequest&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; inst = DomainRequest()
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta
+&amp;lt;Options for DomainRequest&amp;gt;
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.__class__
+django.db.models.options.Options
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.fields
+[&amp;lt;django.db.models.fields.AutoField: id&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: start_date&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: end_date&amp;gt;,
+ &amp;lt;django.db.models.fields.related.ForeignKey: owner&amp;gt;,
+ &amp;lt;django.db.models.fields.TextField: description&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: status&amp;gt;,
+ &amp;lt;json_field.fields.JSONField: internal_state&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: name&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: provider&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: dns_server&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: cancellation&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: place&amp;gt;,
+ &amp;lt;django.db.models.fields.BooleanField: as_mail_domain&amp;gt;]
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.many_to_many
+[&amp;lt;django.contrib.contenttypes.generic.GenericRelation: changelog&amp;gt;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;inst._meta.fields&lt;/code&gt; is a list of field instances where each field has a &lt;code&gt;name&lt;/code&gt;
+attribute. This list only contains normal fields but no Many2Many-, ForeignKey
+or One2One-Relations which are stored separately in &lt;code&gt;inst._meta.many_to_many&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;extracting-field-names&#34;&gt;Extracting field names&lt;/h2&gt;
+
+&lt;p&gt;The following method extracts all field-names as a list. This is is injected
+into &lt;a href=&#34;http://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/&#34;&gt;every model
+instance&lt;/a&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields(self):
+    return [ f.name for f in self._meta.fields + self._meta.many_to_many ]
+
+&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt; Model.fields = fields
+
+&amp;gt;&amp;gt;&amp;gt; inst.fields
+[&#39;id&#39;,
+ &#39;start_date&#39;,
+ &#39;end_date&#39;,
+ &#39;owner&#39;,
+ &#39;description&#39;,
+ &#39;status&#39;,
+ &#39;internal_state&#39;,
+ &#39;name&#39;,
+ &#39;provider&#39;,
+ &#39;dns_server&#39;,
+ &#39;cancellation&#39;,
+ &#39;place&#39;,
+ &#39;as_mail_domain&#39;,
+ &#39;changelog&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;verbose_name&lt;/code&gt; for every field is also included in &lt;code&gt;_meta&lt;/code&gt;.  The follwoing
+method extracts the field name as keys and verbose_name as values as a dict.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields_verbose(self):
+    return dict([ (f.name, f.verbose_name) for f in self._meta.fields + self._meta.many_to_many ])
+
+&amp;gt;&amp;gt;&amp;gt; Model.fields_verbose = fields_verbose
+&amp;gt;&amp;gt;&amp;gt; inst.fields_verbose
+{&#39;as_mail_domain&#39;: u&#39;Freigabe als Maildomain&#39;,
+ &#39;cancellation&#39;: u&#39;K\xfcndigungsfrist&#39;,
+ &#39;changelog&#39;: &#39;changelog&#39;,
+ &#39;description&#39;: &#39;Bemerkungen&#39;,
+ &#39;dns_server&#39;: u&#39;DNS-Server&#39;,
+ &#39;end_date&#39;: &#39;Ablaufdatum&#39;,
+ &#39;id&#39;: &#39;ID&#39;,
+ &#39;internal_state&#39;: &#39;internal state&#39;,
+ &#39;name&#39;: &#39;name&#39;,
+ &#39;owner&#39;: &#39;Verantwortlicher&#39;,
+ &#39;place&#39;: u&#39;Ort im Domainordner&#39;,
+ &#39;provider&#39;: u&#39;Provider&#39;,
+ &#39;start_date&#39;: &#39;start date&#39;,
+ &#39;status&#39;: &#39;status&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

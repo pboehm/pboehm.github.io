@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/meta-programming/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/meta-programming/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Method Injection in Python</title>
+      <link>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</link>
+      <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
+      <description>
+
+&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
+
+&lt;p&gt;Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies
+bei der Klassendefinition zu tun. Das ist auch in 99% aller
+Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in
+denen das nicht möglich/nützlich ist:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Bei der Nutzung von Frameworks/Libraries könnte man das Bedürfnis haben, existierende Klassen um eigene Methoden zu erweitern bzw. zu überschreiben.
+
+&lt;ul&gt;
+&lt;li&gt;Man könnte bestrebt sein, die &lt;code&gt;__unicode__&lt;/code&gt;-Methode des User-Models in
+Django mit einer eigenen Implementierung zu überschreiben, die den User im
+folgenden Format liefert &lt;code&gt;Hans Peter (peter)&lt;/code&gt; anstatt &lt;code&gt;&amp;lt;User: peter&amp;gt;&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;die Möglichkeit alle seine Django-Models um eine gemeinsame Methode zu
+erweitern, ohne sie zu kopieren oder andere schlimme Dinge zu tun&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Man hat eine Funktionalität (z.B. Logging-Funktionalität) entwickelt und
+sucht nun nach einer Möglichkeit, diese den nutzenden Klassen bereitzustellen&lt;/li&gt;
+&lt;li&gt;Vielleicht ist auch nur der Weg zur Klassendefinition zu weit oder die Änderungen
+sollen sich nur auf bestimmte Instanzen auswirken&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;funktionen-sind-objekte&#34;&gt;Funktionen sind Objekte!&lt;/h2&gt;
+
+&lt;p&gt;Python ist eine objekt-orientierte Sprache und das, im Gegensatz zu anderen
+Sprachen, auch vollständig. Um das zu beweisen, nachfolgend ein Ausflug nach
+&lt;code&gt;python&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; def test():
+...     return &amp;quot;blog.pboehm.org&amp;quot;
+...
+&amp;gt;&amp;gt;&amp;gt; type(test)
+&amp;lt;type &#39;function&#39;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; isinstance(test, object)
+True
+&amp;gt;&amp;gt;&amp;gt; test()
+&#39;blog.pboehm.org&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wie man hier sieht, ist ein Funktions-Objekt auch nur eine Instanz einer
+Subclass von &lt;code&gt;object&lt;/code&gt;. Genau diese Tatsache bekommt man zu spüren, wenn man
+beim Aufrufen von Funktionen/Methoden die entsprechenden Klammern vergisst und
+dann das entsprechende Funktionsobjekt, anstatt des Rückgabewertes, geliefert
+bekommt.&lt;/p&gt;
+
+&lt;h2 id=&#34;klassen-um-methoden-erweitern&#34;&gt;Klassen um Methoden erweitern&lt;/h2&gt;
+
+&lt;p&gt;Bisher wurde immer von Funktionen gesprochen, im Kontext von Klassen werden
+diese zu Methoden, indem sie auf Instanzen einer Klasse arbeiten. Die Referenz
+auf die eigene Instanz wird in Python explizit mittels &lt;code&gt;self&lt;/code&gt; angegeben, was
+nachfolgend auch zu sehen sein wird.&lt;/p&gt;
+
+&lt;p&gt;In dem nachfolgenden Beispiel soll eine Methode erstellt werden, die einem die
+Model-Fields eines Django-Model als &lt;code&gt;list&lt;/code&gt; liefert. Dafür wird eine Methode
+&lt;code&gt;get_field_names&lt;/code&gt; definiert, die aus der Meta-Klasse die entsprechenden Felder
+heraussucht. Abschließend wird die Methode zur &lt;code&gt;Model&lt;/code&gt;-Klasse von Django
+hinzugefügt.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; def get_field_names(self):
+...     return [ f.name for f in self._meta.fields ]
+...
+&amp;gt;&amp;gt;&amp;gt; Model.get_field_names = get_field_names
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Die &lt;code&gt;Model&lt;/code&gt;-Klasse besitzt nun eine neue Methode, welche auch an alle erbenden
+Klassen vererbt wird. Auch bereits erstellte Instanzen bekommen diese Methode
+hinzugefügt. Das folgende Beispiel verdeutlicht das, indem es eine Instanz des
+&lt;code&gt;User&lt;/code&gt;-Models erstellt, welche von der &amp;lsquo;Model&amp;rsquo;-Klasse erbt und dann die
+enthaltenen Felder liefert.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.contrib.auth.models import User
+
+&amp;gt;&amp;gt;&amp;gt; u = User()
+&amp;gt;&amp;gt;&amp;gt; u.get_field_names()
+[&#39;id&#39;, &#39;username&#39;, &#39;first_name&#39;, &#39;last_name&#39;, &#39;email&#39;, &#39;password&#39;, &#39;is_staff&#39;, &#39;is_active&#39;, &#39;is_superuser&#39;, &#39;last_login&#39;, &#39;date_joined&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;ausblick&#34;&gt;Ausblick&lt;/h2&gt;
+
+&lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
+zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
+weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

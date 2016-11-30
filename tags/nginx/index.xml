@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/nginx/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/nginx/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Authentication for WebSockets</title>
+      <link>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</link>
+      <pubDate>Sat, 19 Jul 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m using &lt;a href=&#34;https://github.com/joewalnes/websocketd&#34;&gt;websocketd&lt;/a&gt; for a little
+side project, called &lt;a href=&#34;https://github.com/pboehm/webshell&#34;&gt;webshell&lt;/a&gt;, which is a
+little shell in your browser that runs predefined commands. It is obvious that
+this shouldn&amp;rsquo;t be accessible by everyone! So there is a need for
+authentication. For most of my projects I use HTTP Basic Auth, which &lt;a href=&#34;https://code.google.com/p/chromium/issues/detail?id=123862&#34;&gt;is not
+supported&lt;/a&gt; by
+Chrome when using WebSockets. The solution is a cookie based authentication
+built using Lua directly in nginx (used as a reverse proxy).&lt;/p&gt;
+
+&lt;h2 id=&#34;cookie-based-authentication-for-ws&#34;&gt;Cookie-based authentication for WS&lt;/h2&gt;
+
+&lt;p&gt;The Nginx-Lua-integration is available as a separate module, which is available
+through the &lt;code&gt;nginx-extras&lt;/code&gt; package in general. The configuration below should
+be placed in a suitable config file (e.g. &lt;code&gt;/etc/nginx/sites-enabled/default&lt;/code&gt;).&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;init_by_lua &#39;ACCESS_TOKEN_VALUE = ngx.md5(&amp;quot;&amp;quot; .. math.random(10000, 90000))&#39;;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This generates the value for the auth cookie. Please generate a better token
+value in a multi-user environment, as with this, every cookie has the same
+value. For a single user environment this should be no problem. This code runs
+once on nginx startup.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;server {
+    return 404;
+}
+
+server {
+        listen   80;
+        server_name shell.example.org;
+
+        location /auth {
+                auth_basic           &amp;quot;closed site&amp;quot;;
+                auth_basic_user_file /etc/nginx/htpasswd;
+                access_by_lua &#39;
+                    local expires = 3600 * 24 * 30 -- 30 days
+                    ngx.header[&amp;quot;Set-Cookie&amp;quot;] = &amp;quot;ACCESS_TOKEN=&amp;quot; ..
+                                                ACCESS_TOKEN_VALUE ..
+                                               &amp;quot;; Path=/; Expires=&amp;quot; ..
+                                               ngx.cookie_time(ngx.time() + expires)
+                    return ngx.redirect(&amp;quot;/&amp;quot;);                &#39;;
+        }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;First you have to update the value of &lt;code&gt;server_name&lt;/code&gt;. Then you have to generate
+a htpasswd using the &lt;code&gt;htpasswd&lt;/code&gt; command which is part of the apache-utils
+package.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;        location / {
+                access_by_lua &#39;
+                    local cookie_value = ngx.var.cookie_ACCESS_TOKEN
+                    if cookie_value == ACCESS_TOKEN_VALUE then
+                        return
+                    end
+
+                    ngx.exec(&amp;quot;/auth/&amp;quot;)
+                &#39;;
+
+                proxy_pass          http://127.0.0.1:8888;
+
+                proxy_http_version  1.1;
+                proxy_set_header    Upgrade $http_upgrade;
+                proxy_set_header    Connection &amp;quot;upgrade&amp;quot;;
+                proxy_set_header    Host            $host;
+                proxy_set_header    X-Real-IP       $remote_addr;
+                proxy_set_header    X-Forwarded-for $remote_addr;
+                proxy_buffering     off;
+                proxy_read_timeout  386400;
+        }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This snippet includes the standard settings for reverse proxying (&lt;code&gt;proxy_*&lt;/code&gt;)
+and another Lua construct, which checks the auth cookie and renders the &lt;code&gt;/auth&lt;/code&gt;
+location in case of a mismatch. Please update the &lt;code&gt;proxy_pass&lt;/code&gt; value so that it
+matches your application needs.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Building a small Web Redirector using Nginx</title>
+      <link>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</link>
+      <pubDate>Sat, 22 Feb 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</guid>
+      <description>
+
+&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
+possibilities what you can do with it. One thing is to write a redirector to
+use subdomains pointing to your profile-pages on several services like Flickr
+or Github. Another purpose could be the redirection of &lt;code&gt;www.DOMAIN&lt;/code&gt; and
+&lt;code&gt;DOMAIN&lt;/code&gt; to &lt;code&gt;blog.DOMAIN&lt;/code&gt;, which could be hosted on Github Pages that is
+limited to one CNAME per page.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h3 id=&#34;dns-settings&#34;&gt;DNS settings&lt;/h3&gt;
+
+&lt;p&gt;To do this kind of redirection, you need access to some host on the internet
+(where Nginx is available), which should have a subdomain pointing to it,
+through a &lt;code&gt;CNAME&lt;/code&gt;-, &lt;code&gt;A&lt;/code&gt;- or &lt;code&gt;AAAA&lt;/code&gt;-Record. In this post, it is
+&lt;code&gt;redirector.example.org&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;For each subdomain, which should be redirected later, you should create a
+&lt;code&gt;CNAME&lt;/code&gt; entry, pointing to your redirector host (&lt;code&gt;redirector.example.org&lt;/code&gt;).&lt;/p&gt;
+
+&lt;h3 id=&#34;nginx-setup&#34;&gt;Nginx setup&lt;/h3&gt;
+
+&lt;p&gt;Nginx should be available as a binary package in most linux distributions and should be installed first. On Ubuntu/Debian you can do it with:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sudo apt-get install nginx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;As the last step, you have to configure Nginx to redirect all your stuff. The
+following path to the configuration file is valid for Ubuntu/Debian. Please
+look for the right path if the path is not valid on your distribution.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;vim /etc/nginx/sites-enabled/default
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code&gt;server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name example.org www.example.org;
+	rewrite ^ http://blog.example.org$request_uri? permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name github.example.org git.example.org;
+	rewrite ^ https://github.com/YOUR_USERNAME permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name flickr.example.org;
+	rewrite ^ http://www.flickr.com/photos/YOUR_USERNAME/ permanent;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With these lines, you will redirect the standard subdomains &lt;code&gt;example.org&lt;/code&gt; and
+&lt;code&gt;www.example.org&lt;/code&gt; to &lt;code&gt;blog.example.org&lt;/code&gt;. &lt;code&gt;git|github.example.org&lt;/code&gt; to your
+Github profile and &lt;code&gt;flickr.example.org&lt;/code&gt; to your Flickr profile.&lt;/p&gt;
+
+&lt;p&gt;For each target you want to redirect to, you have to write one &lt;code&gt;server&lt;/code&gt;-block,
+which listens on the specific subdomains.&lt;/p&gt;
+
+&lt;p&gt;Now you have to restart Nginx:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;service nginx restart
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

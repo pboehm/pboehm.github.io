@@ -1,0 +1,1181 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Fri, 19 Dec 2014 00:00:00 +0000</lastBuildDate>
+    <atom:link href="https://blog.pboehm.org/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Replacing multiple Vagrant VMs with LXC containers</title>
+      <link>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</link>
+      <pubDate>Fri, 19 Dec 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m currently working in an environment where the development setup consists of
+6 individual VirtualBox VMs handled by &lt;a href=&#34;http://vagrantup.com&#34;&gt;vagrant&lt;/a&gt;. This
+could be a problem on devices with low amount of memory, such as Macbook Air
+&amp;hellip;&lt;/p&gt;
+
+&lt;p&gt;This post describes a setup with a single VM which hosts all other VMs as LXC
+containers with minimal overhead. The tricky part here is the network setup, so
+that your developer machine is in the same network as the containers, which
+then allows direct access to and from the containers.&lt;/p&gt;
+
+&lt;p&gt;This setup also allows the usage of LXC on developer machines running OSX or
+Windows, which normally doesn&amp;rsquo;t support LXC.&lt;/p&gt;
+
+&lt;p&gt;The developer machine and all LXC containers are connected to
+an ethernet bridge &lt;code&gt;lxcbr1&lt;/code&gt; inside the base box. This interface acts like a
+normal ethernet switch and is the key component of this solution.&lt;/p&gt;
+
+&lt;h2 id=&#34;project-layout&#34;&gt;Project Layout&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;.
+├── Vagrantfile
+└── deployment
+    └── Vagrantfile
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;Vagrantfile&lt;/code&gt; in the project root handles the base box and mounts the
+directory &lt;code&gt;deployment/&lt;/code&gt; into the box. Inside the base box, the other
+&lt;code&gt;Vagrantfile&lt;/code&gt; is used for setting up the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-base-box&#34;&gt;The Base Box&lt;/h2&gt;
+
+&lt;h4 id=&#34;vagrantfile&#34;&gt;&lt;code&gt;Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  config.vm.box = &amp;quot;ubuntu/trusty64&amp;quot;
+  config.vm.hostname = &amp;quot;devbox&amp;quot;
+  config.vm.synced_folder &amp;quot;deployment/&amp;quot;, &amp;quot;/deployment&amp;quot;
+  config.vm.network &amp;quot;private_network&amp;quot;, ip: &amp;quot;192.168.42.10&amp;quot;, auto_config: false
+
+  config.vm.provider &amp;quot;virtualbox&amp;quot; do |vb|
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--memory&amp;quot;, &amp;quot;1024&amp;quot;]
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--nicpromisc2&amp;quot;, &amp;quot;allow-all&amp;quot;]
+  end
+
+  config.vm.provision :shell, :inline =&amp;gt; BOX_SETUP_SCRIPT, privileged: false
+  config.vm.provision :shell, :inline =&amp;gt; VAGRANT_STARTUP_SCRIPT, run: &amp;quot;always&amp;quot;, privileged: false
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Pay attention to the &lt;code&gt;--nicpromisc2&lt;/code&gt; argument, which tells VirtualBox to put
+the second interface into promiscuous mode, so that all traffic reaching the
+interface will be transfered. Without this flag, no direct communication
+between the developer machine and any LXC-container would be successful.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;BOX_SETUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+sudo apt-get update
+sudo apt-get install -y lxc lxc-templates cgroup-lite redir bridge-utils
+
+cat &amp;lt;&amp;lt; EOF &amp;gt; /tmp/lxcbr1.cfg
+auto eth1
+iface eth1 inet manual
+        up ifconfig eth1 promisc up
+        down ifconfig eth1 promisc down
+
+auto lxcbr1
+iface lxcbr1 inet static
+    address 192.168.42.10
+    broadcast 192.168.42.255
+    netmask 255.255.255.0
+    bridge_ports eth1
+    bridge_stp off
+    bridge_waitport 0
+    bridge_fd 0
+EOF
+
+sudo mv /tmp/lxcbr1.cfg /etc/network/interfaces.d/lxcbr1.cfg
+
+sudo service networking restart
+sudo ifup lxcbr1
+
+cd /tmp
+wget -q https://dl.bintray.com/mitchellh/vagrant/vagrant_1.6.5_x86_64.deb
+
+sudo dpkg -i vagrant_1.6.5_x86_64.deb
+vagrant plugin install vagrant-lxc
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This script is used once for setting up the base box by installing &lt;code&gt;vagrant&lt;/code&gt;,
+&lt;code&gt;vagrant-lxc&lt;/code&gt;, all dependencies and also configures the &lt;code&gt;lxcbr1&lt;/code&gt;-bridge
+persistently.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;VAGRANT_STARTUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+cd /deployment
+vagrant up
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This provisioner script is executed every time &lt;code&gt;vagrant&lt;/code&gt; starts the base
+box and it boots the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-container-setup&#34;&gt;The Container Setup&lt;/h2&gt;
+
+&lt;h4 id=&#34;deployment-vagrantfile&#34;&gt;&lt;code&gt;deployment/Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+BASE_IMAGE = &amp;quot;fgrehm/precise64-lxc&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.define :lxc1 do |box|
+    box.vm.hostname = &amp;quot;lxc1&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.2/24&amp;quot;
+    end
+  end
+
+  config.vm.define :lxc2 do |box|
+    box.vm.hostname = &amp;quot;lxc2&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.3/24&amp;quot;
+    end
+  end
+
+  # ....
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This &lt;code&gt;Vagrantfile&lt;/code&gt; handles the LXC containers and is the place where you build
+your infrastructure with LXC as a provider.&lt;/p&gt;
+
+&lt;h2 id=&#34;startup&#34;&gt;Startup&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;# from inside your project
+vagrant up
+
+# this should be successful
+ping 192.168.42.2
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Authentication for WebSockets</title>
+      <link>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</link>
+      <pubDate>Sat, 19 Jul 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m using &lt;a href=&#34;https://github.com/joewalnes/websocketd&#34;&gt;websocketd&lt;/a&gt; for a little
+side project, called &lt;a href=&#34;https://github.com/pboehm/webshell&#34;&gt;webshell&lt;/a&gt;, which is a
+little shell in your browser that runs predefined commands. It is obvious that
+this shouldn&amp;rsquo;t be accessible by everyone! So there is a need for
+authentication. For most of my projects I use HTTP Basic Auth, which &lt;a href=&#34;https://code.google.com/p/chromium/issues/detail?id=123862&#34;&gt;is not
+supported&lt;/a&gt; by
+Chrome when using WebSockets. The solution is a cookie based authentication
+built using Lua directly in nginx (used as a reverse proxy).&lt;/p&gt;
+
+&lt;h2 id=&#34;cookie-based-authentication-for-ws&#34;&gt;Cookie-based authentication for WS&lt;/h2&gt;
+
+&lt;p&gt;The Nginx-Lua-integration is available as a separate module, which is available
+through the &lt;code&gt;nginx-extras&lt;/code&gt; package in general. The configuration below should
+be placed in a suitable config file (e.g. &lt;code&gt;/etc/nginx/sites-enabled/default&lt;/code&gt;).&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;init_by_lua &#39;ACCESS_TOKEN_VALUE = ngx.md5(&amp;quot;&amp;quot; .. math.random(10000, 90000))&#39;;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This generates the value for the auth cookie. Please generate a better token
+value in a multi-user environment, as with this, every cookie has the same
+value. For a single user environment this should be no problem. This code runs
+once on nginx startup.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;server {
+    return 404;
+}
+
+server {
+        listen   80;
+        server_name shell.example.org;
+
+        location /auth {
+                auth_basic           &amp;quot;closed site&amp;quot;;
+                auth_basic_user_file /etc/nginx/htpasswd;
+                access_by_lua &#39;
+                    local expires = 3600 * 24 * 30 -- 30 days
+                    ngx.header[&amp;quot;Set-Cookie&amp;quot;] = &amp;quot;ACCESS_TOKEN=&amp;quot; ..
+                                                ACCESS_TOKEN_VALUE ..
+                                               &amp;quot;; Path=/; Expires=&amp;quot; ..
+                                               ngx.cookie_time(ngx.time() + expires)
+                    return ngx.redirect(&amp;quot;/&amp;quot;);                &#39;;
+        }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;First you have to update the value of &lt;code&gt;server_name&lt;/code&gt;. Then you have to generate
+a htpasswd using the &lt;code&gt;htpasswd&lt;/code&gt; command which is part of the apache-utils
+package.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;        location / {
+                access_by_lua &#39;
+                    local cookie_value = ngx.var.cookie_ACCESS_TOKEN
+                    if cookie_value == ACCESS_TOKEN_VALUE then
+                        return
+                    end
+
+                    ngx.exec(&amp;quot;/auth/&amp;quot;)
+                &#39;;
+
+                proxy_pass          http://127.0.0.1:8888;
+
+                proxy_http_version  1.1;
+                proxy_set_header    Upgrade $http_upgrade;
+                proxy_set_header    Connection &amp;quot;upgrade&amp;quot;;
+                proxy_set_header    Host            $host;
+                proxy_set_header    X-Real-IP       $remote_addr;
+                proxy_set_header    X-Forwarded-for $remote_addr;
+                proxy_buffering     off;
+                proxy_read_timeout  386400;
+        }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This snippet includes the standard settings for reverse proxying (&lt;code&gt;proxy_*&lt;/code&gt;)
+and another Lua construct, which checks the auth cookie and renders the &lt;code&gt;/auth&lt;/code&gt;
+location in case of a mismatch. Please update the &lt;code&gt;proxy_pass&lt;/code&gt; value so that it
+matches your application needs.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Building a small Web Redirector using Nginx</title>
+      <link>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</link>
+      <pubDate>Sat, 22 Feb 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</guid>
+      <description>
+
+&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
+possibilities what you can do with it. One thing is to write a redirector to
+use subdomains pointing to your profile-pages on several services like Flickr
+or Github. Another purpose could be the redirection of &lt;code&gt;www.DOMAIN&lt;/code&gt; and
+&lt;code&gt;DOMAIN&lt;/code&gt; to &lt;code&gt;blog.DOMAIN&lt;/code&gt;, which could be hosted on Github Pages that is
+limited to one CNAME per page.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h3 id=&#34;dns-settings&#34;&gt;DNS settings&lt;/h3&gt;
+
+&lt;p&gt;To do this kind of redirection, you need access to some host on the internet
+(where Nginx is available), which should have a subdomain pointing to it,
+through a &lt;code&gt;CNAME&lt;/code&gt;-, &lt;code&gt;A&lt;/code&gt;- or &lt;code&gt;AAAA&lt;/code&gt;-Record. In this post, it is
+&lt;code&gt;redirector.example.org&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;For each subdomain, which should be redirected later, you should create a
+&lt;code&gt;CNAME&lt;/code&gt; entry, pointing to your redirector host (&lt;code&gt;redirector.example.org&lt;/code&gt;).&lt;/p&gt;
+
+&lt;h3 id=&#34;nginx-setup&#34;&gt;Nginx setup&lt;/h3&gt;
+
+&lt;p&gt;Nginx should be available as a binary package in most linux distributions and should be installed first. On Ubuntu/Debian you can do it with:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sudo apt-get install nginx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;As the last step, you have to configure Nginx to redirect all your stuff. The
+following path to the configuration file is valid for Ubuntu/Debian. Please
+look for the right path if the path is not valid on your distribution.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;vim /etc/nginx/sites-enabled/default
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code&gt;server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name example.org www.example.org;
+	rewrite ^ http://blog.example.org$request_uri? permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name github.example.org git.example.org;
+	rewrite ^ https://github.com/YOUR_USERNAME permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name flickr.example.org;
+	rewrite ^ http://www.flickr.com/photos/YOUR_USERNAME/ permanent;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With these lines, you will redirect the standard subdomains &lt;code&gt;example.org&lt;/code&gt; and
+&lt;code&gt;www.example.org&lt;/code&gt; to &lt;code&gt;blog.example.org&lt;/code&gt;. &lt;code&gt;git|github.example.org&lt;/code&gt; to your
+Github profile and &lt;code&gt;flickr.example.org&lt;/code&gt; to your Flickr profile.&lt;/p&gt;
+
+&lt;p&gt;For each target you want to redirect to, you have to write one &lt;code&gt;server&lt;/code&gt;-block,
+which listens on the specific subdomains.&lt;/p&gt;
+
+&lt;p&gt;Now you have to restart Nginx:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;service nginx restart
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>git: simple but powerful workflow</title>
+      <link>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</link>
+      <pubDate>Sun, 31 Mar 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</guid>
+      <description>&lt;p&gt;&lt;code&gt;git&lt;/code&gt; the distributed version control system built for the Linux kernel is widely used
+nowadays and has been adapted by more and more dev-teams. Developing with &lt;code&gt;git&lt;/code&gt;
+in a small team requires a different workflow to &lt;code&gt;push/pull/merge/rebase&lt;/code&gt;
+without any problems. This post describes a minimal workflow, which builds up on
+feature branches on which the developer implements their changes. The
+&lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
+into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Create a feature branch by typing &lt;code&gt;feature MYLITTLEBRANCHNAME&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;A new branch called &lt;code&gt;MYLITTLEBRANCHNAME&lt;/code&gt; has been created and checked out for you&lt;/li&gt;
+&lt;li&gt;You will edit some files and create some commits until your feature is complete&lt;/li&gt;
+&lt;li&gt;Merge your changes into &lt;code&gt;master&lt;/code&gt; by typing &lt;code&gt;merge_with_master&lt;/code&gt;. This will
+checkout the &lt;code&gt;master&lt;/code&gt;-branch and runs a &lt;code&gt;git pull&lt;/code&gt; on it. Now it tries to merge your
+branch. If new commits are added to &lt;code&gt;master&lt;/code&gt; since you created your
+feature-branch, a Fast-Forward-Merge is not possible and &lt;code&gt;merge_with_master&lt;/code&gt;
+asks you if it should rebase your changes on the current &lt;code&gt;master&lt;/code&gt;. If you
+accept this, a &lt;code&gt;git rebase master&lt;/code&gt; will be executed and another attempt to
+merge your code into &lt;code&gt;master&lt;/code&gt; will be started.&lt;/li&gt;
+&lt;li&gt;Your changes are now merged into &lt;code&gt;master&lt;/code&gt; and the feature-branch has been
+deleted. You can now push your code to a remote &lt;code&gt;git&lt;/code&gt;-repo.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;&lt;strong&gt;Installation&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The workflow is implemented as a shell-alias and a shell-function which should
+work in both &lt;code&gt;zsh&lt;/code&gt; and &lt;code&gt;bash&lt;/code&gt;. To install it, copy the following lines into
+your &lt;code&gt;~/.[bash|zsh]rc&lt;/code&gt; and start a new shell-session.&lt;/p&gt;
+
+&lt;script src=&#34;//gist.github.com/pboehm/5282061.js&#34;&gt;&lt;/script&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow in action&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The following shell session shows the workflow in action. A situation, where a
+Fast-Forward-Merge is not possible, is created and than resolved by
+&lt;code&gt;merge_with_master&lt;/code&gt;. All lines started by a &lt;code&gt;$&lt;/code&gt;-sign are shell commands.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ echo &amp;quot;Test&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added README&amp;quot;
+[master (root-commit) 50c0b89] Added README
+1 file changed, 1 insertion(+)
+create mode 100644 README.md
+$ feature README_improvements
+Switched to a new branch &#39;README_improvements&#39;
+$ git checkout master
+Switched to branch &#39;master&#39;
+$ echo &amp;quot;\nTesttest&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Updated README&amp;quot;
+[master 483c7b6] Updated README
+1 file changed, 2 insertions(+)
+$ git checkout README_improvements
+Switched to branch &#39;README_improvements&#39;
+$ echo &amp;quot;*.pyc&amp;quot; &amp;gt;&amp;gt; .gitignore
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added .gitignore&amp;quot;
+[README_improvements 7a84507] Added .gitignore
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+$ merge_with_master
+Switched to branch &#39;master&#39;
+fatal: Not possible to fast-forward, aborting.
+Switched to branch &#39;README_improvements&#39;
+Your are behind master, a clean Merge is not possible!
+Should I rebase it with master and try it again? (y/n) y
+First, rewinding head to replay your work on top of it...
+Applying: Added .gitignore
+Switched to branch &#39;master&#39;
+Updating 483c7b6..49445e7
+Fast-forward
+.gitignore | 1 +
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+Deleted branch README_improvements (was 49445e7).
+You can now &#39;git push&#39; your code
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Extracting field names from Django model instance</title>
+      <link>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</link>
+      <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
+      <description>
+
+&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
+On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
+
+&lt;p&gt;When you define your models you can create an optional inner class &lt;code&gt;Meta&lt;/code&gt; which
+holds some settings like field excludes or the table name in DB. Every model
+instance holds an instance of its Meta class. The examples below make use of a
+model called &lt;code&gt;DomainRequest&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; inst = DomainRequest()
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta
+&amp;lt;Options for DomainRequest&amp;gt;
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.__class__
+django.db.models.options.Options
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.fields
+[&amp;lt;django.db.models.fields.AutoField: id&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: start_date&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: end_date&amp;gt;,
+ &amp;lt;django.db.models.fields.related.ForeignKey: owner&amp;gt;,
+ &amp;lt;django.db.models.fields.TextField: description&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: status&amp;gt;,
+ &amp;lt;json_field.fields.JSONField: internal_state&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: name&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: provider&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: dns_server&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: cancellation&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: place&amp;gt;,
+ &amp;lt;django.db.models.fields.BooleanField: as_mail_domain&amp;gt;]
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.many_to_many
+[&amp;lt;django.contrib.contenttypes.generic.GenericRelation: changelog&amp;gt;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;inst._meta.fields&lt;/code&gt; is a list of field instances where each field has a &lt;code&gt;name&lt;/code&gt;
+attribute. This list only contains normal fields but no Many2Many-, ForeignKey
+or One2One-Relations which are stored separately in &lt;code&gt;inst._meta.many_to_many&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;extracting-field-names&#34;&gt;Extracting field names&lt;/h2&gt;
+
+&lt;p&gt;The following method extracts all field-names as a list. This is is injected
+into &lt;a href=&#34;http://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/&#34;&gt;every model
+instance&lt;/a&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields(self):
+    return [ f.name for f in self._meta.fields + self._meta.many_to_many ]
+
+&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt; Model.fields = fields
+
+&amp;gt;&amp;gt;&amp;gt; inst.fields
+[&#39;id&#39;,
+ &#39;start_date&#39;,
+ &#39;end_date&#39;,
+ &#39;owner&#39;,
+ &#39;description&#39;,
+ &#39;status&#39;,
+ &#39;internal_state&#39;,
+ &#39;name&#39;,
+ &#39;provider&#39;,
+ &#39;dns_server&#39;,
+ &#39;cancellation&#39;,
+ &#39;place&#39;,
+ &#39;as_mail_domain&#39;,
+ &#39;changelog&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;verbose_name&lt;/code&gt; for every field is also included in &lt;code&gt;_meta&lt;/code&gt;.  The follwoing
+method extracts the field name as keys and verbose_name as values as a dict.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields_verbose(self):
+    return dict([ (f.name, f.verbose_name) for f in self._meta.fields + self._meta.many_to_many ])
+
+&amp;gt;&amp;gt;&amp;gt; Model.fields_verbose = fields_verbose
+&amp;gt;&amp;gt;&amp;gt; inst.fields_verbose
+{&#39;as_mail_domain&#39;: u&#39;Freigabe als Maildomain&#39;,
+ &#39;cancellation&#39;: u&#39;K\xfcndigungsfrist&#39;,
+ &#39;changelog&#39;: &#39;changelog&#39;,
+ &#39;description&#39;: &#39;Bemerkungen&#39;,
+ &#39;dns_server&#39;: u&#39;DNS-Server&#39;,
+ &#39;end_date&#39;: &#39;Ablaufdatum&#39;,
+ &#39;id&#39;: &#39;ID&#39;,
+ &#39;internal_state&#39;: &#39;internal state&#39;,
+ &#39;name&#39;: &#39;name&#39;,
+ &#39;owner&#39;: &#39;Verantwortlicher&#39;,
+ &#39;place&#39;: u&#39;Ort im Domainordner&#39;,
+ &#39;provider&#39;: u&#39;Provider&#39;,
+ &#39;start_date&#39;: &#39;start date&#39;,
+ &#39;status&#39;: &#39;status&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Method Injection in Python</title>
+      <link>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</link>
+      <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
+      <description>
+
+&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
+
+&lt;p&gt;Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies
+bei der Klassendefinition zu tun. Das ist auch in 99% aller
+Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in
+denen das nicht möglich/nützlich ist:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Bei der Nutzung von Frameworks/Libraries könnte man das Bedürfnis haben, existierende Klassen um eigene Methoden zu erweitern bzw. zu überschreiben.
+
+&lt;ul&gt;
+&lt;li&gt;Man könnte bestrebt sein, die &lt;code&gt;__unicode__&lt;/code&gt;-Methode des User-Models in
+Django mit einer eigenen Implementierung zu überschreiben, die den User im
+folgenden Format liefert &lt;code&gt;Hans Peter (peter)&lt;/code&gt; anstatt &lt;code&gt;&amp;lt;User: peter&amp;gt;&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;die Möglichkeit alle seine Django-Models um eine gemeinsame Methode zu
+erweitern, ohne sie zu kopieren oder andere schlimme Dinge zu tun&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Man hat eine Funktionalität (z.B. Logging-Funktionalität) entwickelt und
+sucht nun nach einer Möglichkeit, diese den nutzenden Klassen bereitzustellen&lt;/li&gt;
+&lt;li&gt;Vielleicht ist auch nur der Weg zur Klassendefinition zu weit oder die Änderungen
+sollen sich nur auf bestimmte Instanzen auswirken&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;funktionen-sind-objekte&#34;&gt;Funktionen sind Objekte!&lt;/h2&gt;
+
+&lt;p&gt;Python ist eine objekt-orientierte Sprache und das, im Gegensatz zu anderen
+Sprachen, auch vollständig. Um das zu beweisen, nachfolgend ein Ausflug nach
+&lt;code&gt;python&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; def test():
+...     return &amp;quot;blog.pboehm.org&amp;quot;
+...
+&amp;gt;&amp;gt;&amp;gt; type(test)
+&amp;lt;type &#39;function&#39;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; isinstance(test, object)
+True
+&amp;gt;&amp;gt;&amp;gt; test()
+&#39;blog.pboehm.org&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wie man hier sieht, ist ein Funktions-Objekt auch nur eine Instanz einer
+Subclass von &lt;code&gt;object&lt;/code&gt;. Genau diese Tatsache bekommt man zu spüren, wenn man
+beim Aufrufen von Funktionen/Methoden die entsprechenden Klammern vergisst und
+dann das entsprechende Funktionsobjekt, anstatt des Rückgabewertes, geliefert
+bekommt.&lt;/p&gt;
+
+&lt;h2 id=&#34;klassen-um-methoden-erweitern&#34;&gt;Klassen um Methoden erweitern&lt;/h2&gt;
+
+&lt;p&gt;Bisher wurde immer von Funktionen gesprochen, im Kontext von Klassen werden
+diese zu Methoden, indem sie auf Instanzen einer Klasse arbeiten. Die Referenz
+auf die eigene Instanz wird in Python explizit mittels &lt;code&gt;self&lt;/code&gt; angegeben, was
+nachfolgend auch zu sehen sein wird.&lt;/p&gt;
+
+&lt;p&gt;In dem nachfolgenden Beispiel soll eine Methode erstellt werden, die einem die
+Model-Fields eines Django-Model als &lt;code&gt;list&lt;/code&gt; liefert. Dafür wird eine Methode
+&lt;code&gt;get_field_names&lt;/code&gt; definiert, die aus der Meta-Klasse die entsprechenden Felder
+heraussucht. Abschließend wird die Methode zur &lt;code&gt;Model&lt;/code&gt;-Klasse von Django
+hinzugefügt.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; def get_field_names(self):
+...     return [ f.name for f in self._meta.fields ]
+...
+&amp;gt;&amp;gt;&amp;gt; Model.get_field_names = get_field_names
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Die &lt;code&gt;Model&lt;/code&gt;-Klasse besitzt nun eine neue Methode, welche auch an alle erbenden
+Klassen vererbt wird. Auch bereits erstellte Instanzen bekommen diese Methode
+hinzugefügt. Das folgende Beispiel verdeutlicht das, indem es eine Instanz des
+&lt;code&gt;User&lt;/code&gt;-Models erstellt, welche von der &amp;lsquo;Model&amp;rsquo;-Klasse erbt und dann die
+enthaltenen Felder liefert.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.contrib.auth.models import User
+
+&amp;gt;&amp;gt;&amp;gt; u = User()
+&amp;gt;&amp;gt;&amp;gt; u.get_field_names()
+[&#39;id&#39;, &#39;username&#39;, &#39;first_name&#39;, &#39;last_name&#39;, &#39;email&#39;, &#39;password&#39;, &#39;is_staff&#39;, &#39;is_active&#39;, &#39;is_superuser&#39;, &#39;last_login&#39;, &#39;date_joined&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;ausblick&#34;&gt;Ausblick&lt;/h2&gt;
+
+&lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
+zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
+weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>git commit -am &#34;Initial commit&#34;</title>
+      <link>https://blog.pboehm.org/blog/2013/01/20/git-commit--am-initial-commit/</link>
+      <pubDate>Sun, 20 Jan 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/01/20/git-commit--am-initial-commit/</guid>
+      <description>&lt;p&gt;My plan with this blog is, to write about several things I&amp;rsquo;m interested in. Some of my ideas are:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;describe language concepts and their implementation in different languages&lt;/li&gt;
+&lt;li&gt;solutions for different problems I had in my work on different projects&lt;/li&gt;
+&lt;li&gt;present some of my own projects&lt;/li&gt;
+&lt;li&gt;&amp;hellip;.&lt;/li&gt;
+&lt;/ul&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>$PATH anpassen</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/path-anpassen/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/path-anpassen/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Die Shell-Variable &lt;code&gt;$PATH&lt;/code&gt; ist dafür zuständig, Pfade zu Verzeichnissen
+festzulegen, in denen die Shell nach ausführbaren Dateien sucht und sie
+so in der Lage ist, diese Dateien ohne explizite Pfadangabe auszuführen.
+Standardmäßig sind dort alle wichtigen Verzeichnisse wie &lt;code&gt;/bin&lt;/code&gt;,
+&lt;code&gt;/usr/bin&lt;/code&gt;, &lt;code&gt;/usr/local/bin&lt;/code&gt;, &lt;code&gt;/sbin&lt;/code&gt; oder &lt;code&gt;/usr/sbin&lt;/code&gt; enthalten, sodass
+es möglich ist, die Programme &lt;code&gt;cat&lt;/code&gt; oder &lt;code&gt;grep&lt;/code&gt; ohne Pfadanagbe
+auszuführen. Manchmal ist es aber notwendig andere Pfade hinzuzufügen,
+um eigene Programme oder Scripts genauso komfortabel ausführen zu
+können. Die Anpassung wird nachfolgend dargestellt.&lt;/p&gt;
+
+&lt;p&gt;Um diese Variable dauerhaft ändern zu können, muss man wissen, welche
+Dateien beim Start eines Linux-Systems ausgelesen und interpretiert
+werden.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;HINWEIS&lt;/em&gt; Die hier beschriebene Vorgehensweise bezieht sich auf die
+Standard-Shell &lt;code&gt;bash&lt;/code&gt; (Bourne-Again-Shell), bei anderen Shells wie der
+&lt;code&gt;csh&lt;/code&gt;, &lt;code&gt;tcsh&lt;/code&gt; oder der &lt;code&gt;zsh&lt;/code&gt; ist dieses Vorgehen anders und es gibt
+andere Dateien, aber da diese Shells sehr selten sind, lasse ich die
+jetzt ganz dreist außen vor.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;/etc/bashrc oder unter Debain/Ubuntu /etc/bash.bashrc&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;Diese Dateien sind global und somit hat dort nur &lt;code&gt;root&lt;/code&gt; Schreibzugriff,
+d.h. alles was hier festgelegt wird, gilt für alle Nutzer des Sytems und
+es ist sehr einfach und komfortabel durch diese Datei Rahmenbedingung
+für die Nutzer festzulegen. Wenn Sie als normaler Nutzer auf einem
+System mit mehreren Nutzern arbeiten, wird es Ihnen normalerweise nicht
+möglich sein, in der globalen Datei etwas zu ändern und somit verbleiben
+Ihnen noch die lokalen Dateien.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Beispiel:&lt;/em&gt; Stellen Sie sich vor, dass Sie in Ihrem Homeverzeichnis
+einen Ordner &lt;code&gt;Scripts&lt;/code&gt; und einen Ordner &lt;code&gt;Programs&lt;/code&gt; haben, indem Sie Ihre
+eigenen Programmierprojekte und Shell-Scripte aufbewahren, die jeweils
+alle ausführbar sind. Sie möchten diese aber wie ganz normale Programme
+(&lt;code&gt;cat&lt;/code&gt;, &lt;code&gt;less&lt;/code&gt; oder&lt;code&gt;grep&lt;/code&gt;) ohne Pfad-Angabe ausführen. Um das zu
+erledigen fügen Sie der Datei &lt;code&gt;/etc/bashrc&lt;/code&gt; oder &lt;code&gt;/etc/bash.bashrc&lt;/code&gt;
+(Debian/Ubuntu) folgende Zeilen hinzu:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#Erweiterung der PATH-Variable 
+PATH=$PATH:/home/philipp/Scripts:/home/philipp/Programs 
+export $PATH
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;em&gt;Erklärung:&lt;/em&gt; Die erste Zeile bildet nur einen Kommentar, der Ihnen beim
+erneuten Aufsuchen der Stelle in der Datei behilflich sein kann. Die
+zweite Zeile bedeutet wörtlich: Lege Eine Variable mit dem Namen &lt;code&gt;PATH&lt;/code&gt;
+an, fülle sie mit dem Wert aus der, schon existierenden, &lt;code&gt;PATH&lt;/code&gt;-Variable
+und hänge durch einen Doppelpunkt (wichtig!!!) separiert neue Pfade an.
+Die &lt;code&gt;export&lt;/code&gt;-Anweisung in der dritten Zeile bedeutet nur, dass diese
+Variable auch an die Subshells weitergegeben wird und somit zum Beispiel
+auf in Shellscripten zur Verfügung steht, weil bei deren Aufruf eine
+neue Subshell gestartet wird.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;~/.bashrc oder mit voller Pfadangabe /home/user/.bashrc&lt;/em&gt; Diese Datei
+existiert für jeden Benutzer und jeder Benutzer kann sie seinen Wünschen
+entsprechend editieren. Sie befindet sich direkt in Ihrem
+Homeverzeichnis und um dort Verzeichnisse zu PATH hinzuzufügen, gehen
+Sie wie bei der globalen &lt;code&gt;bashrc&lt;/code&gt; vor.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>-   Terratec Cinergy T Stick RC unter Fedora</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/----terratec-cinergy-t-stick-rc-unter-fedora/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/----terratec-cinergy-t-stick-rc-unter-fedora/</guid>
+      <description>&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;Beiträge zu Tools: pDownloader, getserieslinks …
+&amp;gt;
+&amp;gt; Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+&amp;gt; Mögliche Darstellungsfehler bitte ich zu entschuldigen.
+&amp;gt;&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Beiträge zu Tools: pDownloader, getserieslinks …&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Bauen von RPM-Paketen und Erstellen von Yum-Repos&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Caching von RPM-Paketen (intelligentmirror)&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Konfiguration von Squid (transparentes Proxying, Authentifizierung,
+intelligentmirror)&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Arbeit mit iso-Files unter Linux</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Die Bereitstellung von CD-Abbildern in Form von iso-Dateien ist in der
+Open-Source-Welt sehr beliebt und deswegen widme ich einem Beitrag der
+Verwendung dieser Files unter Linux. Die Norm ISO 9660 beschreibt die
+Richtlinien für das Dateisystem von CDs bzw. DVDs, woraus auch die
+Dateiendung entsteht.&lt;/p&gt;
+
+&lt;p&gt;Mounten von normalen iso-Files
+++++++++++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei
+eingehängt (gemountet) werden. Ich bevorzuge die Methode per
+&lt;code&gt;mount&lt;/code&gt;-Befehl, es gibt aber auch noch die Möglichkeit z.B über &lt;code&gt;cdemu&lt;/code&gt;.
+Ich werde mich aber auf den &lt;code&gt;mount&lt;/code&gt;-Befehl beschränken, da er ohne
+weitere Pakete zu installieren, vorhanden ist. Für das Mounten, werden
+administrative Rechte gebraucht.&lt;/p&gt;
+
+&lt;p&gt;Der Befehl:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# mount -o loop -t 9660 /path/to/isofile /mountpoint
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Beispiel: (Einhängen der Gasterweiterung für Virtualisierungssoftware
+VirtualBox)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# mount -o loop -t 9660 /home/philipp/.VirtualBox/VBoxGuestAdditions_3.0.4.iso /mnt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;em&gt;Was bedeutet der Befehl nun:&lt;/em&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;mount&lt;/code&gt; ist der Befehl zu Einhängen anderer Dateisysteme in das
+lokale Dateisystem&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;-o loop&lt;/code&gt; mountet das iso als Loopback-Device, was eine Mischform
+der beiden gängigsten Device-Typen (Block- und Characterdevices)
+darstellt&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;-t 9660&lt;/code&gt; legt das Dateisystem für das iso-File fest (kann auch weg
+gelassen werden)&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;/path/to/iso-file&lt;/code&gt; ist der Pfad zum Iso-File&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;/mountpoint&lt;/code&gt;ist ein Ordner in dem das CD-Abbild eingehängt wird
+z.B. &lt;code&gt;/mnt&lt;/code&gt; oder jeder beliebige Ordner&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;em&gt;Wie kann man das iso-File wieder aushängen:&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;Für das Aushängen eines Dateisystems gibt es das Gegenstück zum
+&lt;code&gt;mount&lt;/code&gt;-Befehl, nämlich den &lt;code&gt;umount&lt;/code&gt;-Befehl, welcher jetzt kurz
+dargestellt wird.&lt;/p&gt;
+
+&lt;p&gt;Der Befehl:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# umount /mountpoint
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# umount /mnt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Alternative CD-Abbilder mounten
+++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Natürlich gibt es zu iso-Dateien zahlreiche Alternativen wie &lt;code&gt;nrg&lt;/code&gt;,
+&lt;code&gt;bin/cue&lt;/code&gt;, &lt;code&gt;mdf/mds&lt;/code&gt;, die sich meistens im Dateisystem nicht
+unterscheiden, also mein Tipp: einfach mal mit dem oben dargestellten
+&lt;code&gt;mount&lt;/code&gt;-Befehl probieren, wenn es nicht geht wird &lt;code&gt;mount&lt;/code&gt; eine
+Fehlermeldung erzeugen.&lt;/p&gt;
+
+&lt;p&gt;bin/cue-Abbilder
++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Eine Ausnahme beim Mounten bilden die Abbilder, die in zwei Dateien mit
+den Endungen &lt;code&gt;.bin&lt;/code&gt; und &lt;code&gt;.cue&lt;/code&gt; aufgeteilt sind. Diese können nativ nicht
+mit Linux gemountet werden, aber dafür gibt es das Programm &lt;code&gt;bchunk&lt;/code&gt;,
+welche die bin/cue-Dateien in ein iso-Abbild konvertiert.&lt;/p&gt;
+
+&lt;p&gt;Installieren Sie also das Paket bchunk mit Ihrem Paket-Verwaltungsystem
+(&lt;code&gt;apt&lt;/code&gt;, &lt;code&gt;yum&lt;/code&gt;, &lt;code&gt;zypper&lt;/code&gt; …) und wenden Sie folgenden Befehl an:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ bchunk /path/to/bin path/to/cue basename
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ bchunk image.bin image.cue result
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Danach wird sich in dem Ordner ein iso-File befinden.&lt;/p&gt;
+
+&lt;p&gt;Erstellen von iso-Abbildern von einer CD
++++++++++++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Jetzt wo wir das das Mounten von iso-Dateien besprochen haben, wenden
+wir uns dem Erstellen von iso-Dateien aus jeglichen Devices zu. Als
+Beispiel soll das Erstellen eines iso-Abbilds von einer normalen 700MB
+CD dienen.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ dd if=/dev/srcdevice of=/path/to/iso bs=2048
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ dd if=/dev/scd0 of=/home/philipp/Desktop/ubuntu904.iso bs=2048
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einiger Zeit und Rauschen des DVD-Laufwerks erscheint im
+Ziel-Ordner die entsprechende iso-Datei.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Das bedeutet der Befehl:&lt;/em&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;dd&lt;/code&gt; ist der Befehl für das bitweise Kopieren&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;if=/dev/srcdevice&lt;/code&gt; ist der Pfad zum Quell-Device von dem das Abbild
+erstellt werden soll (Achten Sie auf das Gleichheitszeichen)&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;of=/path/to/iso&lt;/code&gt; ist der Pfad zum zu erstellenden iso-File&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;bs=2048&lt;/code&gt; gibt die entsprechende Blocksize für das Dateisystem an
+(Für CDs/DVDs ist das 2048, für andere Dateisysteme ist das
+abweichend)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Wenn Sie das iso-File erstellt haben nutzen Sie den &lt;code&gt;mount&lt;/code&gt;-Befehl um es
+einzuhängen.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Beiträge in DokuWiki mit vim schreiben</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/beitr%C3%A4ge-in-dokuwiki-mit-vim-schreiben/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/beitr%C3%A4ge-in-dokuwiki-mit-vim-schreiben/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;a href=&#34;http://dokuwiki.org&#34; title=&#34;http://dokuwiki.org&#34;&gt;DokuWiki&lt;/a&gt; bietet selbst
+eigentlich eine recht angenehme Art, technische Dokumentationen online
+zu schreiben, wobei natürlich nichts einen klassischen Offline-Editor
+schlagen kann. Deswegen war ich doch sehr erfreut, als ich das Plugin
+&lt;a href=&#34;https://github.com/chimeric/dokuvimki&#34; title=&#34;https://github.com/chimeric/dokuvimki&#34;&gt;DokuVimKi&lt;/a&gt;
+für den populären Editor &lt;a href=&#34;http://vim.org&#34; title=&#34;http://vim.org&#34;&gt;Vim&lt;/a&gt; entdeckt
+habe. Durch dieses Plugin wird der Workflow von DokuWiki in den
+Vim-Editor integriert und ermöglicht somit ein komfortables
+Erstellen/Bearbeiten/Verwalten von DokuWiki-Beiträgen. Die Einrichtung
+des Plugins beschreibt dieser Beitrag&lt;/p&gt;
+
+&lt;p&gt;Installation der notwendigen Komponenten
++++++++++++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Um DokuVimKi zu installieren, muss man sich das Plugin bei
+&lt;a href=&#34;http://github.com&#34; title=&#34;http://github.com&#34;&gt;github&lt;/a&gt; auschecken, wofür
+&lt;a href=&#34;http://git-scm.com/&#34; title=&#34;http://git-scm.com/&#34;&gt;git&lt;/a&gt; installiert sein muss.
+Führen Sie folgenden Befehl aus und es befindet sich dann ein
+Verzeichnis &lt;code&gt;dokuvimki&lt;/code&gt; im aktuellen Verzeichnis, das den Plugin-Code
+enthält.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/chimeric/dokuvimki.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Alternativ kann auch das folgende &lt;a href=&#34;http://www.vim.org/scripts/download_script.php?src_id=13501&#34; title=&#34;http://www.vim.org/scripts/download_script.php?src_id=13501&#34;&gt;Tar-Archiv heruntergeladen&lt;/a&gt;
+und entpackt werden. Dann müssen die Ordner &lt;code&gt;doc&lt;/code&gt;, &lt;code&gt;plugin&lt;/code&gt; und &lt;code&gt;syntax&lt;/code&gt;
+in das Verzeichnis &lt;code&gt;~/.vim/&lt;/code&gt; verschoben werden.&lt;/p&gt;
+
+&lt;p&gt;DokuVimKi benötigt zu Kommunikation mit DokuWiki eine bestimmte
+Python-Library, welche ebenfalls bei github ausgecheckt werden kann.
+Nachfolgend muss diese Library dann im System installiert werden.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/chimeric/dokuwikixmlrpc
+cd dokuwikixmlrpc
+sudo python setup.py install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Damit wären die notwendigen Komponenten installiert, fehlt nur noch die
+Konfiguration.&lt;/p&gt;
+
+&lt;p&gt;Konfiguration von DokuWiki
+++++++++++++++++++++++++&amp;ndash;&lt;/p&gt;
+
+&lt;p&gt;Der Zugriff per XML-RPC ist bei DokuWiki standardmäßig deaktiviert, was
+für den Zugriff durch DokuVimKi aber geändert werden muss.&lt;/p&gt;
+
+&lt;p&gt;Melden Sie sich im Admin-Interface bei DokuWiki an und suchen Sie im
+Abschnitt &lt;code&gt;Authentifizierungs-Konfiguration&lt;/code&gt; nach
+&lt;code&gt;XML-RPC-Zugriff erlauben&lt;/code&gt; und aktivieren Sie die zugehörige Checkbox.
+Tragen Sie Ihren Nutzernamen noch in das darauffolgende Textfeld ein und
+speichern Sie die Änderungen.&lt;/p&gt;
+
+&lt;p&gt;Konfiguration von vim
++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Als letzter Ort für die Konfiguration bleibt vim selbst, welcher noch
+vom DokuVimKi-Plugin erfahren muss. Es müssen folgende Zeilen in die
+&lt;code&gt;~/.vimrc&lt;/code&gt; integriert werden, wobei die Werte für Nutzername, Passwort
+und URL angepasst werden müssen:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;let g:DokuVimKi_USER=&amp;quot;IHR_NUTZERNAME_IM_DOKUWIKI&amp;quot;
+let g:DokuVimKi_PASS=&amp;quot;IHR_PASSWORT_IM_DOKUWIKI&amp;quot;
+let g:DokuVimKi_URL=&amp;quot;http://&amp;lt;YOUR_DW_LOCATION&amp;gt;/lib/exe/xmlrpc.php&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nutzung von DokuVimKi
++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Öffnen Sie Vim durch Eingabe von &lt;code&gt;vim&lt;/code&gt; oder auch manchmal &lt;code&gt;vi&lt;/code&gt;. Wenn Sie
+eine fehlerhafte &lt;code&gt;.vimrc&lt;/code&gt; haben sollten, wird Ihnen das vim nun sagen.
+Das Plugin wird nicht direkt beim Start geladen, was auch nicht sinnvoll
+wäre. Geben Sie somit folgenden Befehl im normalen Modus ein:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;:DokuVimKi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einer kurzen Wartezeit für das Login, stehen die Funktionen zum
+Bearbeiten von Seiten zur Verfügung.&lt;/p&gt;
+
+&lt;p&gt;Befehl                | Bedeutung
+ +++++++++++++++++++++ | ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ :DWedit &amp;lt;page&amp;gt;      | Öffne die angegebene Datei zum Schreiben oder lege sie an
+ :DWsave &amp;lt;summary&amp;gt;   | Speichere die Änderungen mit optionaler Zusammenfassung
+ :DWclose              | Schließe die aktuelle Datei und gib sie für Änderungen frei&lt;/p&gt;
+
+&lt;p&gt;Bei den dargestellten Befehlen handelt es nur um eine kleine Auswahl,
+die komplette Dokumentation erhält man durch die Eingabe von
+&lt;code&gt;:help dokuvimki&lt;/code&gt;. Nachfolgend werden noch einige Shortcuts zum
+schnellen Schreiben von Beiträgen dargestellt, wobei diese jeweils im
+INSERT-Modus eingegeben werden.&lt;/p&gt;
+
+&lt;p&gt;Shortcut              | Bedeutung
+ +++++++++++++++++++++ | ++++++++++++++++++++++++++++++++++++++++++++++++
+ STRG-D + STRG-H       | Fügt eine Überschrift ein
+ STRG-D + STRG-L       | Fügt das Konstrukt für einen Link ein
+ STRG-D + STRG-[BIU]   | Formatiere &lt;strong&gt;fett&lt;/strong&gt;, &lt;em&gt;kursiv&lt;/em&gt;, &lt;em&gt;unterstrichen&lt;/em&gt;
+ STRG-D + STRG-[KF]    | Füge einen Code- [K] oder Datei-Block [F] ein&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>CUPS: Printer-Sharing</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/cups-printer-sharing/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/cups-printer-sharing/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Das Drucksystem CUPS (Common Unix Printing System) ist heute der defacto
+Standard, um unter unixbasierten Betriebsystemen Drucker zu verwalten
+und zu benutzen. Um die Konfiguration allgemein, soll es in diesem
+Beitrag nicht gehen, sondern um eine Funktion zum verteilten Zugriff auf
+einen Drucker über das Netzwerk.&lt;/p&gt;
+
+&lt;p&gt;Um CUPS richtig zu verstehen, muss man wissen, dass CUPS-Server im
+Netzwerk untereinander kommunizieren und das CUPS eigentlich nichts
+weiter als ein kleiner Webserver ist, welcher zur Konfiguration und zur
+Verwaltung der Drucker gebraucht wird. Als Beispiel soll ein kleines
+Netzwerk herhalten, welches aus einem zentralen Server und mehreren
+Clients besteht. Am Server hängt ein beliebiger Drucker, welcher in CUPS
+schon eingerichtet ist. Die Funktion, die aktiviert werden soll, ist
+die, dass die Clients ohne explizite Konfiguration eines eigenen
+Druckers auf den Drucker am Server zugreifen können. Server: Auf dem
+Server muss die Funktion zum Verteilen des lokalen Druckers eingerichet
+werden:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@server #] cupsctl --share-printers
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Dies verfrachtet die lokalen Drucker ins Netwerk, sodass Clients auf sie
+zugreifen können. Client: Die Clients müssen so konfiguriert werden,
+dass sie global verfügbare Drucker benutzen.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@client #] cupsctl --remote-printers
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Danach tauchen in den Druck-Dialogen des Client-Systems die global
+verfügbaren Drucker auf und können anstandslos benutzt werden.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Canon Pixma MP210 unter Fedora</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/canon-pixma-mp210-unter-fedora/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/canon-pixma-mp210-unter-fedora/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Auch wenn ich in der vorigen Fassung dieses Beitrags geschrieben habe,
+dass es für den PIXMA MP210 keinen Open-Source-Treiber gibt, habe ich
+doch noch eine weitere Möglichkeit gefunden, ohne den
+Hersteller-Treiber, den Drucker zum Arbeiten zu überreden.&lt;/p&gt;
+
+&lt;p&gt;  Das Gutenprint-Projekt hat für das Nachfolgermodell, den PIXMA MP220,
+einen offenen Treiber in Form einer PPD-Datei erstellt. Die PPDs des
+Gutenprint-Projekts werden in Form zweier Pakete ausgeliefert und sind
+standardmäßig unter Fedora und auch allen anderen
+Mainstream-Distributionen installiert.&lt;/p&gt;
+
+&lt;p&gt;Sollten die Pakete in Ihrem System nicht installiert sein, müssen Sie
+sie durch folgenden Befehl nachinstallieren (distributionsabhängig):&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host ]# yum install gutenprint*
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Im Vergleich zur Canon-PPD bietet die freie PPD wesentlich mehr
+Funktionen (Graustufendruck …) und eine erheblich bessere Druckqualität.
+Ihren Drucker können Sie nun über die üblichen Wege konfigurieren
+(CUPS-Webinterface, &lt;code&gt;system-config-printer&lt;/code&gt;).&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>CentOS 6.0: Pulseaudio Sound viel zu leise</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-pulseaudio-sound-viel-zu-leise/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-pulseaudio-sound-viel-zu-leise/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;a href=&#34;http://centos.org&#34; title=&#34;http://centos.org&#34;&gt;CentOS&lt;/a&gt; 6.0 und damit auch alle
+anderen Derivate von RHEL 6, weisen ein Problem mit dem maximalen
+Lautstärkepegel von Audio-Headsets auf. Beim Anstecken der
+Sound-Hardware weist Pulseaudio einen zu niedrigen maximalen
+Lautstärkepegel zu, sodass trotz voll aufgedrehten Reglern, die
+Audio-Ausgabe viel zu leise ist. Das Problem &lt;a href=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=664586&#34; title=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=664586&#34;&gt;ist Redhat
+bekannt&lt;/a&gt;
+und wird in einem der nächsten Releases behoben.&lt;/p&gt;
+
+&lt;p&gt;Als Workaround gilt folgender Befehl, der das Erhöhen des maximalen
+Lautstärkepegels ermöglicht.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;alsamixer -Dhw -c1
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Centos 6.0: Problem mit Intel-NICs und dem Treiber e1000e</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Als ich das aktuelle &lt;a href=&#34;http://centos.org&#34; title=&#34;http://centos.org&#34;&gt;CentOS&lt;/a&gt;,
+ein Nachbau von &lt;a href=&#34;http://redhat.com&#34; title=&#34;http://redhat.com&#34;&gt;Redhat&lt;/a&gt;
+Enterprise Linux (RHEL), auf einigen halbwegs aktuellen HP-Workstations
+installieren wollte, kam es zu Problemen mit den verbauten Intel
+Gigabit-NICs (82566DM), welches den Aufbau einer Netzwerk-Verbindung
+verhinderte. Das Mysteriöse an diesem Fehler war die Tatsache, dass er
+nur auftrat, wenn die Workstations an einem FastEthernet-Switch hingen.
+Bei direkten Anschluss an einem Gigabit-Switch trat dieses Problem nicht
+auf und es konnte dort problemlos eine Verbindung hergestellt werden.
+Eine tiefgreifende Beschreibung des Problems, sowie eine Lösung für
+dieses Problem liefert dieser Beitrag.&lt;/p&gt;
+
+&lt;p&gt;Ein &lt;code&gt;lspci&lt;/code&gt; lieferte auf den Workstations folgendes Ergebnis:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;00:00.0 Host bridge: Intel Corporation 82Q963/Q965 Memory Controller Hub (rev 02)
+00:02.0 VGA compatible controller: Intel Corporation 82Q963/Q965 Integrated Graphics Controller (rev 02)
+00:03.0 Communication controller: Intel Corporation 82Q963/Q965 HECI Controller (rev 02)
+00:19.0 Ethernet controller: Intel Corporation 82566DM Gigabit Network Connection (rev 02)
+00:1a.0 USB Controller: Intel Corporation 82801H (ICH8 Family) USB UHCI Controller #4 (rev 02)
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Ein Blick in die Datei &lt;code&gt;/var/log/messages&lt;/code&gt; förderte zahlreiche Meldungen
+durch den Treiber &lt;code&gt;e1000e&lt;/code&gt; zu Tage, welche nachfolgend auszugsweise
+dargestellt sind:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Aug 15 15:13:29 agent31 kernel: e1000e: Intel(R) PRO/1000 Network Driver - 1.2.7-k2
+Aug 15 15:13:29 agent31 kernel: e1000e: Copyright (c) 1999 - 2009 Intel Corporation.
+Aug 15 15:13:29 agent31 kernel: e1000e 0000:00:19.0: PCI INT B -&amp;gt; GSI 19 (level, low) -&amp;gt; IRQ 19
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Diese Meldungen passen zu dem Verhalten, der an der NIC verbauten LEDs,
+welche ein rhythmisches Wechseln zwischen orange und grün vollziehen.
+Nach einer ausführlichen Recherche und dem Booten eines
+&lt;a href=&#34;http://fedoraproject.org&#34; title=&#34;http://fedoraproject.org&#34;&gt;Fedora&lt;/a&gt; 15, wo das
+Problem nicht auftritt, konnte es nur an der eingesetzten Version des
+&lt;code&gt;e1000e&lt;/code&gt;-Treibers liegen. Wenn man dann auch noch die Tatsache beachtet,
+dass der Kernel 2.6.32 als Basis für RHEL6 und alle seine Derivate
+dient, ist dies noch warscheinlicher.&lt;/p&gt;
+
+&lt;p&gt;Das &lt;a href=&#34;http://elrepo.org&#34; title=&#34;http://elrepo.org&#34;&gt;ELRepo-Projekt&lt;/a&gt; stellt
+einige Pakete mit aktuellen Treibern für RHEL-kompatible Distributionen
+bereit, darunter auch einen aktuellen &lt;code&gt;e1000e&lt;/code&gt;. Folgende Befehle binden
+das Repository ein und installieren dann den entsprechenden &lt;code&gt;kmod&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rpm -Uvh http://elrepo.org/elrepo-release-6-4.el6.elrepo.noarch.rpm
+yum -y install kmod-e1000e
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einem Reboot sollte die neue Version des &lt;code&gt;e1000e&lt;/code&gt; benutzt werden
+und dementsprechend das oben beschriebene Problem nicht mehr auftreten.&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,1169 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/german/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/german/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Method Injection in Python</title>
+      <link>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</link>
+      <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
+      <description>
+
+&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
+
+&lt;p&gt;Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies
+bei der Klassendefinition zu tun. Das ist auch in 99% aller
+Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in
+denen das nicht möglich/nützlich ist:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Bei der Nutzung von Frameworks/Libraries könnte man das Bedürfnis haben, existierende Klassen um eigene Methoden zu erweitern bzw. zu überschreiben.
+
+&lt;ul&gt;
+&lt;li&gt;Man könnte bestrebt sein, die &lt;code&gt;__unicode__&lt;/code&gt;-Methode des User-Models in
+Django mit einer eigenen Implementierung zu überschreiben, die den User im
+folgenden Format liefert &lt;code&gt;Hans Peter (peter)&lt;/code&gt; anstatt &lt;code&gt;&amp;lt;User: peter&amp;gt;&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;die Möglichkeit alle seine Django-Models um eine gemeinsame Methode zu
+erweitern, ohne sie zu kopieren oder andere schlimme Dinge zu tun&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Man hat eine Funktionalität (z.B. Logging-Funktionalität) entwickelt und
+sucht nun nach einer Möglichkeit, diese den nutzenden Klassen bereitzustellen&lt;/li&gt;
+&lt;li&gt;Vielleicht ist auch nur der Weg zur Klassendefinition zu weit oder die Änderungen
+sollen sich nur auf bestimmte Instanzen auswirken&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;funktionen-sind-objekte&#34;&gt;Funktionen sind Objekte!&lt;/h2&gt;
+
+&lt;p&gt;Python ist eine objekt-orientierte Sprache und das, im Gegensatz zu anderen
+Sprachen, auch vollständig. Um das zu beweisen, nachfolgend ein Ausflug nach
+&lt;code&gt;python&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; def test():
+...     return &amp;quot;blog.pboehm.org&amp;quot;
+...
+&amp;gt;&amp;gt;&amp;gt; type(test)
+&amp;lt;type &#39;function&#39;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; isinstance(test, object)
+True
+&amp;gt;&amp;gt;&amp;gt; test()
+&#39;blog.pboehm.org&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wie man hier sieht, ist ein Funktions-Objekt auch nur eine Instanz einer
+Subclass von &lt;code&gt;object&lt;/code&gt;. Genau diese Tatsache bekommt man zu spüren, wenn man
+beim Aufrufen von Funktionen/Methoden die entsprechenden Klammern vergisst und
+dann das entsprechende Funktionsobjekt, anstatt des Rückgabewertes, geliefert
+bekommt.&lt;/p&gt;
+
+&lt;h2 id=&#34;klassen-um-methoden-erweitern&#34;&gt;Klassen um Methoden erweitern&lt;/h2&gt;
+
+&lt;p&gt;Bisher wurde immer von Funktionen gesprochen, im Kontext von Klassen werden
+diese zu Methoden, indem sie auf Instanzen einer Klasse arbeiten. Die Referenz
+auf die eigene Instanz wird in Python explizit mittels &lt;code&gt;self&lt;/code&gt; angegeben, was
+nachfolgend auch zu sehen sein wird.&lt;/p&gt;
+
+&lt;p&gt;In dem nachfolgenden Beispiel soll eine Methode erstellt werden, die einem die
+Model-Fields eines Django-Model als &lt;code&gt;list&lt;/code&gt; liefert. Dafür wird eine Methode
+&lt;code&gt;get_field_names&lt;/code&gt; definiert, die aus der Meta-Klasse die entsprechenden Felder
+heraussucht. Abschließend wird die Methode zur &lt;code&gt;Model&lt;/code&gt;-Klasse von Django
+hinzugefügt.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; def get_field_names(self):
+...     return [ f.name for f in self._meta.fields ]
+...
+&amp;gt;&amp;gt;&amp;gt; Model.get_field_names = get_field_names
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Die &lt;code&gt;Model&lt;/code&gt;-Klasse besitzt nun eine neue Methode, welche auch an alle erbenden
+Klassen vererbt wird. Auch bereits erstellte Instanzen bekommen diese Methode
+hinzugefügt. Das folgende Beispiel verdeutlicht das, indem es eine Instanz des
+&lt;code&gt;User&lt;/code&gt;-Models erstellt, welche von der &amp;lsquo;Model&amp;rsquo;-Klasse erbt und dann die
+enthaltenen Felder liefert.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.contrib.auth.models import User
+
+&amp;gt;&amp;gt;&amp;gt; u = User()
+&amp;gt;&amp;gt;&amp;gt; u.get_field_names()
+[&#39;id&#39;, &#39;username&#39;, &#39;first_name&#39;, &#39;last_name&#39;, &#39;email&#39;, &#39;password&#39;, &#39;is_staff&#39;, &#39;is_active&#39;, &#39;is_superuser&#39;, &#39;last_login&#39;, &#39;date_joined&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;ausblick&#34;&gt;Ausblick&lt;/h2&gt;
+
+&lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
+zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
+weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>$PATH anpassen</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/path-anpassen/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/path-anpassen/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Die Shell-Variable &lt;code&gt;$PATH&lt;/code&gt; ist dafür zuständig, Pfade zu Verzeichnissen
+festzulegen, in denen die Shell nach ausführbaren Dateien sucht und sie
+so in der Lage ist, diese Dateien ohne explizite Pfadangabe auszuführen.
+Standardmäßig sind dort alle wichtigen Verzeichnisse wie &lt;code&gt;/bin&lt;/code&gt;,
+&lt;code&gt;/usr/bin&lt;/code&gt;, &lt;code&gt;/usr/local/bin&lt;/code&gt;, &lt;code&gt;/sbin&lt;/code&gt; oder &lt;code&gt;/usr/sbin&lt;/code&gt; enthalten, sodass
+es möglich ist, die Programme &lt;code&gt;cat&lt;/code&gt; oder &lt;code&gt;grep&lt;/code&gt; ohne Pfadanagbe
+auszuführen. Manchmal ist es aber notwendig andere Pfade hinzuzufügen,
+um eigene Programme oder Scripts genauso komfortabel ausführen zu
+können. Die Anpassung wird nachfolgend dargestellt.&lt;/p&gt;
+
+&lt;p&gt;Um diese Variable dauerhaft ändern zu können, muss man wissen, welche
+Dateien beim Start eines Linux-Systems ausgelesen und interpretiert
+werden.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;HINWEIS&lt;/em&gt; Die hier beschriebene Vorgehensweise bezieht sich auf die
+Standard-Shell &lt;code&gt;bash&lt;/code&gt; (Bourne-Again-Shell), bei anderen Shells wie der
+&lt;code&gt;csh&lt;/code&gt;, &lt;code&gt;tcsh&lt;/code&gt; oder der &lt;code&gt;zsh&lt;/code&gt; ist dieses Vorgehen anders und es gibt
+andere Dateien, aber da diese Shells sehr selten sind, lasse ich die
+jetzt ganz dreist außen vor.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;/etc/bashrc oder unter Debain/Ubuntu /etc/bash.bashrc&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;Diese Dateien sind global und somit hat dort nur &lt;code&gt;root&lt;/code&gt; Schreibzugriff,
+d.h. alles was hier festgelegt wird, gilt für alle Nutzer des Sytems und
+es ist sehr einfach und komfortabel durch diese Datei Rahmenbedingung
+für die Nutzer festzulegen. Wenn Sie als normaler Nutzer auf einem
+System mit mehreren Nutzern arbeiten, wird es Ihnen normalerweise nicht
+möglich sein, in der globalen Datei etwas zu ändern und somit verbleiben
+Ihnen noch die lokalen Dateien.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Beispiel:&lt;/em&gt; Stellen Sie sich vor, dass Sie in Ihrem Homeverzeichnis
+einen Ordner &lt;code&gt;Scripts&lt;/code&gt; und einen Ordner &lt;code&gt;Programs&lt;/code&gt; haben, indem Sie Ihre
+eigenen Programmierprojekte und Shell-Scripte aufbewahren, die jeweils
+alle ausführbar sind. Sie möchten diese aber wie ganz normale Programme
+(&lt;code&gt;cat&lt;/code&gt;, &lt;code&gt;less&lt;/code&gt; oder&lt;code&gt;grep&lt;/code&gt;) ohne Pfad-Angabe ausführen. Um das zu
+erledigen fügen Sie der Datei &lt;code&gt;/etc/bashrc&lt;/code&gt; oder &lt;code&gt;/etc/bash.bashrc&lt;/code&gt;
+(Debian/Ubuntu) folgende Zeilen hinzu:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#Erweiterung der PATH-Variable 
+PATH=$PATH:/home/philipp/Scripts:/home/philipp/Programs 
+export $PATH
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;em&gt;Erklärung:&lt;/em&gt; Die erste Zeile bildet nur einen Kommentar, der Ihnen beim
+erneuten Aufsuchen der Stelle in der Datei behilflich sein kann. Die
+zweite Zeile bedeutet wörtlich: Lege Eine Variable mit dem Namen &lt;code&gt;PATH&lt;/code&gt;
+an, fülle sie mit dem Wert aus der, schon existierenden, &lt;code&gt;PATH&lt;/code&gt;-Variable
+und hänge durch einen Doppelpunkt (wichtig!!!) separiert neue Pfade an.
+Die &lt;code&gt;export&lt;/code&gt;-Anweisung in der dritten Zeile bedeutet nur, dass diese
+Variable auch an die Subshells weitergegeben wird und somit zum Beispiel
+auf in Shellscripten zur Verfügung steht, weil bei deren Aufruf eine
+neue Subshell gestartet wird.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;~/.bashrc oder mit voller Pfadangabe /home/user/.bashrc&lt;/em&gt; Diese Datei
+existiert für jeden Benutzer und jeder Benutzer kann sie seinen Wünschen
+entsprechend editieren. Sie befindet sich direkt in Ihrem
+Homeverzeichnis und um dort Verzeichnisse zu PATH hinzuzufügen, gehen
+Sie wie bei der globalen &lt;code&gt;bashrc&lt;/code&gt; vor.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>-   Terratec Cinergy T Stick RC unter Fedora</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/----terratec-cinergy-t-stick-rc-unter-fedora/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/----terratec-cinergy-t-stick-rc-unter-fedora/</guid>
+      <description>&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;Beiträge zu Tools: pDownloader, getserieslinks …
+&amp;gt;
+&amp;gt; Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+&amp;gt; Mögliche Darstellungsfehler bitte ich zu entschuldigen.
+&amp;gt;&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Beiträge zu Tools: pDownloader, getserieslinks …&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Bauen von RPM-Paketen und Erstellen von Yum-Repos&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Caching von RPM-Paketen (intelligentmirror)&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Konfiguration von Squid (transparentes Proxying, Authentifizierung,
+intelligentmirror)&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Arbeit mit iso-Files unter Linux</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Die Bereitstellung von CD-Abbildern in Form von iso-Dateien ist in der
+Open-Source-Welt sehr beliebt und deswegen widme ich einem Beitrag der
+Verwendung dieser Files unter Linux. Die Norm ISO 9660 beschreibt die
+Richtlinien für das Dateisystem von CDs bzw. DVDs, woraus auch die
+Dateiendung entsteht.&lt;/p&gt;
+
+&lt;p&gt;Mounten von normalen iso-Files
+++++++++++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei
+eingehängt (gemountet) werden. Ich bevorzuge die Methode per
+&lt;code&gt;mount&lt;/code&gt;-Befehl, es gibt aber auch noch die Möglichkeit z.B über &lt;code&gt;cdemu&lt;/code&gt;.
+Ich werde mich aber auf den &lt;code&gt;mount&lt;/code&gt;-Befehl beschränken, da er ohne
+weitere Pakete zu installieren, vorhanden ist. Für das Mounten, werden
+administrative Rechte gebraucht.&lt;/p&gt;
+
+&lt;p&gt;Der Befehl:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# mount -o loop -t 9660 /path/to/isofile /mountpoint
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Beispiel: (Einhängen der Gasterweiterung für Virtualisierungssoftware
+VirtualBox)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# mount -o loop -t 9660 /home/philipp/.VirtualBox/VBoxGuestAdditions_3.0.4.iso /mnt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;em&gt;Was bedeutet der Befehl nun:&lt;/em&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;mount&lt;/code&gt; ist der Befehl zu Einhängen anderer Dateisysteme in das
+lokale Dateisystem&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;-o loop&lt;/code&gt; mountet das iso als Loopback-Device, was eine Mischform
+der beiden gängigsten Device-Typen (Block- und Characterdevices)
+darstellt&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;-t 9660&lt;/code&gt; legt das Dateisystem für das iso-File fest (kann auch weg
+gelassen werden)&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;/path/to/iso-file&lt;/code&gt; ist der Pfad zum Iso-File&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;/mountpoint&lt;/code&gt;ist ein Ordner in dem das CD-Abbild eingehängt wird
+z.B. &lt;code&gt;/mnt&lt;/code&gt; oder jeder beliebige Ordner&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;em&gt;Wie kann man das iso-File wieder aushängen:&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;Für das Aushängen eines Dateisystems gibt es das Gegenstück zum
+&lt;code&gt;mount&lt;/code&gt;-Befehl, nämlich den &lt;code&gt;umount&lt;/code&gt;-Befehl, welcher jetzt kurz
+dargestellt wird.&lt;/p&gt;
+
+&lt;p&gt;Der Befehl:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# umount /mountpoint
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host:# umount /mnt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Alternative CD-Abbilder mounten
+++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Natürlich gibt es zu iso-Dateien zahlreiche Alternativen wie &lt;code&gt;nrg&lt;/code&gt;,
+&lt;code&gt;bin/cue&lt;/code&gt;, &lt;code&gt;mdf/mds&lt;/code&gt;, die sich meistens im Dateisystem nicht
+unterscheiden, also mein Tipp: einfach mal mit dem oben dargestellten
+&lt;code&gt;mount&lt;/code&gt;-Befehl probieren, wenn es nicht geht wird &lt;code&gt;mount&lt;/code&gt; eine
+Fehlermeldung erzeugen.&lt;/p&gt;
+
+&lt;p&gt;bin/cue-Abbilder
++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Eine Ausnahme beim Mounten bilden die Abbilder, die in zwei Dateien mit
+den Endungen &lt;code&gt;.bin&lt;/code&gt; und &lt;code&gt;.cue&lt;/code&gt; aufgeteilt sind. Diese können nativ nicht
+mit Linux gemountet werden, aber dafür gibt es das Programm &lt;code&gt;bchunk&lt;/code&gt;,
+welche die bin/cue-Dateien in ein iso-Abbild konvertiert.&lt;/p&gt;
+
+&lt;p&gt;Installieren Sie also das Paket bchunk mit Ihrem Paket-Verwaltungsystem
+(&lt;code&gt;apt&lt;/code&gt;, &lt;code&gt;yum&lt;/code&gt;, &lt;code&gt;zypper&lt;/code&gt; …) und wenden Sie folgenden Befehl an:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ bchunk /path/to/bin path/to/cue basename
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ bchunk image.bin image.cue result
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Danach wird sich in dem Ordner ein iso-File befinden.&lt;/p&gt;
+
+&lt;p&gt;Erstellen von iso-Abbildern von einer CD
++++++++++++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Jetzt wo wir das das Mounten von iso-Dateien besprochen haben, wenden
+wir uns dem Erstellen von iso-Dateien aus jeglichen Devices zu. Als
+Beispiel soll das Erstellen eines iso-Abbilds von einer normalen 700MB
+CD dienen.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ dd if=/dev/srcdevice of=/path/to/iso bs=2048
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bsp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host:$ dd if=/dev/scd0 of=/home/philipp/Desktop/ubuntu904.iso bs=2048
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einiger Zeit und Rauschen des DVD-Laufwerks erscheint im
+Ziel-Ordner die entsprechende iso-Datei.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Das bedeutet der Befehl:&lt;/em&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;dd&lt;/code&gt; ist der Befehl für das bitweise Kopieren&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;if=/dev/srcdevice&lt;/code&gt; ist der Pfad zum Quell-Device von dem das Abbild
+erstellt werden soll (Achten Sie auf das Gleichheitszeichen)&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;of=/path/to/iso&lt;/code&gt; ist der Pfad zum zu erstellenden iso-File&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;bs=2048&lt;/code&gt; gibt die entsprechende Blocksize für das Dateisystem an
+(Für CDs/DVDs ist das 2048, für andere Dateisysteme ist das
+abweichend)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Wenn Sie das iso-File erstellt haben nutzen Sie den &lt;code&gt;mount&lt;/code&gt;-Befehl um es
+einzuhängen.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Beiträge in DokuWiki mit vim schreiben</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/beitr%C3%A4ge-in-dokuwiki-mit-vim-schreiben/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/beitr%C3%A4ge-in-dokuwiki-mit-vim-schreiben/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;a href=&#34;http://dokuwiki.org&#34; title=&#34;http://dokuwiki.org&#34;&gt;DokuWiki&lt;/a&gt; bietet selbst
+eigentlich eine recht angenehme Art, technische Dokumentationen online
+zu schreiben, wobei natürlich nichts einen klassischen Offline-Editor
+schlagen kann. Deswegen war ich doch sehr erfreut, als ich das Plugin
+&lt;a href=&#34;https://github.com/chimeric/dokuvimki&#34; title=&#34;https://github.com/chimeric/dokuvimki&#34;&gt;DokuVimKi&lt;/a&gt;
+für den populären Editor &lt;a href=&#34;http://vim.org&#34; title=&#34;http://vim.org&#34;&gt;Vim&lt;/a&gt; entdeckt
+habe. Durch dieses Plugin wird der Workflow von DokuWiki in den
+Vim-Editor integriert und ermöglicht somit ein komfortables
+Erstellen/Bearbeiten/Verwalten von DokuWiki-Beiträgen. Die Einrichtung
+des Plugins beschreibt dieser Beitrag&lt;/p&gt;
+
+&lt;p&gt;Installation der notwendigen Komponenten
++++++++++++++++++++++++++++++++++++++++-&lt;/p&gt;
+
+&lt;p&gt;Um DokuVimKi zu installieren, muss man sich das Plugin bei
+&lt;a href=&#34;http://github.com&#34; title=&#34;http://github.com&#34;&gt;github&lt;/a&gt; auschecken, wofür
+&lt;a href=&#34;http://git-scm.com/&#34; title=&#34;http://git-scm.com/&#34;&gt;git&lt;/a&gt; installiert sein muss.
+Führen Sie folgenden Befehl aus und es befindet sich dann ein
+Verzeichnis &lt;code&gt;dokuvimki&lt;/code&gt; im aktuellen Verzeichnis, das den Plugin-Code
+enthält.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/chimeric/dokuvimki.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Alternativ kann auch das folgende &lt;a href=&#34;http://www.vim.org/scripts/download_script.php?src_id=13501&#34; title=&#34;http://www.vim.org/scripts/download_script.php?src_id=13501&#34;&gt;Tar-Archiv heruntergeladen&lt;/a&gt;
+und entpackt werden. Dann müssen die Ordner &lt;code&gt;doc&lt;/code&gt;, &lt;code&gt;plugin&lt;/code&gt; und &lt;code&gt;syntax&lt;/code&gt;
+in das Verzeichnis &lt;code&gt;~/.vim/&lt;/code&gt; verschoben werden.&lt;/p&gt;
+
+&lt;p&gt;DokuVimKi benötigt zu Kommunikation mit DokuWiki eine bestimmte
+Python-Library, welche ebenfalls bei github ausgecheckt werden kann.
+Nachfolgend muss diese Library dann im System installiert werden.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/chimeric/dokuwikixmlrpc
+cd dokuwikixmlrpc
+sudo python setup.py install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Damit wären die notwendigen Komponenten installiert, fehlt nur noch die
+Konfiguration.&lt;/p&gt;
+
+&lt;p&gt;Konfiguration von DokuWiki
+++++++++++++++++++++++++&amp;ndash;&lt;/p&gt;
+
+&lt;p&gt;Der Zugriff per XML-RPC ist bei DokuWiki standardmäßig deaktiviert, was
+für den Zugriff durch DokuVimKi aber geändert werden muss.&lt;/p&gt;
+
+&lt;p&gt;Melden Sie sich im Admin-Interface bei DokuWiki an und suchen Sie im
+Abschnitt &lt;code&gt;Authentifizierungs-Konfiguration&lt;/code&gt; nach
+&lt;code&gt;XML-RPC-Zugriff erlauben&lt;/code&gt; und aktivieren Sie die zugehörige Checkbox.
+Tragen Sie Ihren Nutzernamen noch in das darauffolgende Textfeld ein und
+speichern Sie die Änderungen.&lt;/p&gt;
+
+&lt;p&gt;Konfiguration von vim
++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Als letzter Ort für die Konfiguration bleibt vim selbst, welcher noch
+vom DokuVimKi-Plugin erfahren muss. Es müssen folgende Zeilen in die
+&lt;code&gt;~/.vimrc&lt;/code&gt; integriert werden, wobei die Werte für Nutzername, Passwort
+und URL angepasst werden müssen:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;let g:DokuVimKi_USER=&amp;quot;IHR_NUTZERNAME_IM_DOKUWIKI&amp;quot;
+let g:DokuVimKi_PASS=&amp;quot;IHR_PASSWORT_IM_DOKUWIKI&amp;quot;
+let g:DokuVimKi_URL=&amp;quot;http://&amp;lt;YOUR_DW_LOCATION&amp;gt;/lib/exe/xmlrpc.php&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nutzung von DokuVimKi
++++++++++++++++++++++&lt;/p&gt;
+
+&lt;p&gt;Öffnen Sie Vim durch Eingabe von &lt;code&gt;vim&lt;/code&gt; oder auch manchmal &lt;code&gt;vi&lt;/code&gt;. Wenn Sie
+eine fehlerhafte &lt;code&gt;.vimrc&lt;/code&gt; haben sollten, wird Ihnen das vim nun sagen.
+Das Plugin wird nicht direkt beim Start geladen, was auch nicht sinnvoll
+wäre. Geben Sie somit folgenden Befehl im normalen Modus ein:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;:DokuVimKi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einer kurzen Wartezeit für das Login, stehen die Funktionen zum
+Bearbeiten von Seiten zur Verfügung.&lt;/p&gt;
+
+&lt;p&gt;Befehl                | Bedeutung
+ +++++++++++++++++++++ | ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ :DWedit &amp;lt;page&amp;gt;      | Öffne die angegebene Datei zum Schreiben oder lege sie an
+ :DWsave &amp;lt;summary&amp;gt;   | Speichere die Änderungen mit optionaler Zusammenfassung
+ :DWclose              | Schließe die aktuelle Datei und gib sie für Änderungen frei&lt;/p&gt;
+
+&lt;p&gt;Bei den dargestellten Befehlen handelt es nur um eine kleine Auswahl,
+die komplette Dokumentation erhält man durch die Eingabe von
+&lt;code&gt;:help dokuvimki&lt;/code&gt;. Nachfolgend werden noch einige Shortcuts zum
+schnellen Schreiben von Beiträgen dargestellt, wobei diese jeweils im
+INSERT-Modus eingegeben werden.&lt;/p&gt;
+
+&lt;p&gt;Shortcut              | Bedeutung
+ +++++++++++++++++++++ | ++++++++++++++++++++++++++++++++++++++++++++++++
+ STRG-D + STRG-H       | Fügt eine Überschrift ein
+ STRG-D + STRG-L       | Fügt das Konstrukt für einen Link ein
+ STRG-D + STRG-[BIU]   | Formatiere &lt;strong&gt;fett&lt;/strong&gt;, &lt;em&gt;kursiv&lt;/em&gt;, &lt;em&gt;unterstrichen&lt;/em&gt;
+ STRG-D + STRG-[KF]    | Füge einen Code- [K] oder Datei-Block [F] ein&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>CUPS: Printer-Sharing</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/cups-printer-sharing/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/cups-printer-sharing/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Das Drucksystem CUPS (Common Unix Printing System) ist heute der defacto
+Standard, um unter unixbasierten Betriebsystemen Drucker zu verwalten
+und zu benutzen. Um die Konfiguration allgemein, soll es in diesem
+Beitrag nicht gehen, sondern um eine Funktion zum verteilten Zugriff auf
+einen Drucker über das Netzwerk.&lt;/p&gt;
+
+&lt;p&gt;Um CUPS richtig zu verstehen, muss man wissen, dass CUPS-Server im
+Netzwerk untereinander kommunizieren und das CUPS eigentlich nichts
+weiter als ein kleiner Webserver ist, welcher zur Konfiguration und zur
+Verwaltung der Drucker gebraucht wird. Als Beispiel soll ein kleines
+Netzwerk herhalten, welches aus einem zentralen Server und mehreren
+Clients besteht. Am Server hängt ein beliebiger Drucker, welcher in CUPS
+schon eingerichtet ist. Die Funktion, die aktiviert werden soll, ist
+die, dass die Clients ohne explizite Konfiguration eines eigenen
+Druckers auf den Drucker am Server zugreifen können. Server: Auf dem
+Server muss die Funktion zum Verteilen des lokalen Druckers eingerichet
+werden:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@server #] cupsctl --share-printers
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Dies verfrachtet die lokalen Drucker ins Netwerk, sodass Clients auf sie
+zugreifen können. Client: Die Clients müssen so konfiguriert werden,
+dass sie global verfügbare Drucker benutzen.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@client #] cupsctl --remote-printers
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Danach tauchen in den Druck-Dialogen des Client-Systems die global
+verfügbaren Drucker auf und können anstandslos benutzt werden.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Canon Pixma MP210 unter Fedora</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/canon-pixma-mp210-unter-fedora/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/canon-pixma-mp210-unter-fedora/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Auch wenn ich in der vorigen Fassung dieses Beitrags geschrieben habe,
+dass es für den PIXMA MP210 keinen Open-Source-Treiber gibt, habe ich
+doch noch eine weitere Möglichkeit gefunden, ohne den
+Hersteller-Treiber, den Drucker zum Arbeiten zu überreden.&lt;/p&gt;
+
+&lt;p&gt;  Das Gutenprint-Projekt hat für das Nachfolgermodell, den PIXMA MP220,
+einen offenen Treiber in Form einer PPD-Datei erstellt. Die PPDs des
+Gutenprint-Projekts werden in Form zweier Pakete ausgeliefert und sind
+standardmäßig unter Fedora und auch allen anderen
+Mainstream-Distributionen installiert.&lt;/p&gt;
+
+&lt;p&gt;Sollten die Pakete in Ihrem System nicht installiert sein, müssen Sie
+sie durch folgenden Befehl nachinstallieren (distributionsabhängig):&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host ]# yum install gutenprint*
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Im Vergleich zur Canon-PPD bietet die freie PPD wesentlich mehr
+Funktionen (Graustufendruck …) und eine erheblich bessere Druckqualität.
+Ihren Drucker können Sie nun über die üblichen Wege konfigurieren
+(CUPS-Webinterface, &lt;code&gt;system-config-printer&lt;/code&gt;).&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>CentOS 6.0: Pulseaudio Sound viel zu leise</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-pulseaudio-sound-viel-zu-leise/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-pulseaudio-sound-viel-zu-leise/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;a href=&#34;http://centos.org&#34; title=&#34;http://centos.org&#34;&gt;CentOS&lt;/a&gt; 6.0 und damit auch alle
+anderen Derivate von RHEL 6, weisen ein Problem mit dem maximalen
+Lautstärkepegel von Audio-Headsets auf. Beim Anstecken der
+Sound-Hardware weist Pulseaudio einen zu niedrigen maximalen
+Lautstärkepegel zu, sodass trotz voll aufgedrehten Reglern, die
+Audio-Ausgabe viel zu leise ist. Das Problem &lt;a href=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=664586&#34; title=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=664586&#34;&gt;ist Redhat
+bekannt&lt;/a&gt;
+und wird in einem der nächsten Releases behoben.&lt;/p&gt;
+
+&lt;p&gt;Als Workaround gilt folgender Befehl, der das Erhöhen des maximalen
+Lautstärkepegels ermöglicht.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;alsamixer -Dhw -c1
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Centos 6.0: Problem mit Intel-NICs und dem Treiber e1000e</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Als ich das aktuelle &lt;a href=&#34;http://centos.org&#34; title=&#34;http://centos.org&#34;&gt;CentOS&lt;/a&gt;,
+ein Nachbau von &lt;a href=&#34;http://redhat.com&#34; title=&#34;http://redhat.com&#34;&gt;Redhat&lt;/a&gt;
+Enterprise Linux (RHEL), auf einigen halbwegs aktuellen HP-Workstations
+installieren wollte, kam es zu Problemen mit den verbauten Intel
+Gigabit-NICs (82566DM), welches den Aufbau einer Netzwerk-Verbindung
+verhinderte. Das Mysteriöse an diesem Fehler war die Tatsache, dass er
+nur auftrat, wenn die Workstations an einem FastEthernet-Switch hingen.
+Bei direkten Anschluss an einem Gigabit-Switch trat dieses Problem nicht
+auf und es konnte dort problemlos eine Verbindung hergestellt werden.
+Eine tiefgreifende Beschreibung des Problems, sowie eine Lösung für
+dieses Problem liefert dieser Beitrag.&lt;/p&gt;
+
+&lt;p&gt;Ein &lt;code&gt;lspci&lt;/code&gt; lieferte auf den Workstations folgendes Ergebnis:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;00:00.0 Host bridge: Intel Corporation 82Q963/Q965 Memory Controller Hub (rev 02)
+00:02.0 VGA compatible controller: Intel Corporation 82Q963/Q965 Integrated Graphics Controller (rev 02)
+00:03.0 Communication controller: Intel Corporation 82Q963/Q965 HECI Controller (rev 02)
+00:19.0 Ethernet controller: Intel Corporation 82566DM Gigabit Network Connection (rev 02)
+00:1a.0 USB Controller: Intel Corporation 82801H (ICH8 Family) USB UHCI Controller #4 (rev 02)
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Ein Blick in die Datei &lt;code&gt;/var/log/messages&lt;/code&gt; förderte zahlreiche Meldungen
+durch den Treiber &lt;code&gt;e1000e&lt;/code&gt; zu Tage, welche nachfolgend auszugsweise
+dargestellt sind:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Aug 15 15:13:29 agent31 kernel: e1000e: Intel(R) PRO/1000 Network Driver - 1.2.7-k2
+Aug 15 15:13:29 agent31 kernel: e1000e: Copyright (c) 1999 - 2009 Intel Corporation.
+Aug 15 15:13:29 agent31 kernel: e1000e 0000:00:19.0: PCI INT B -&amp;gt; GSI 19 (level, low) -&amp;gt; IRQ 19
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
+Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Diese Meldungen passen zu dem Verhalten, der an der NIC verbauten LEDs,
+welche ein rhythmisches Wechseln zwischen orange und grün vollziehen.
+Nach einer ausführlichen Recherche und dem Booten eines
+&lt;a href=&#34;http://fedoraproject.org&#34; title=&#34;http://fedoraproject.org&#34;&gt;Fedora&lt;/a&gt; 15, wo das
+Problem nicht auftritt, konnte es nur an der eingesetzten Version des
+&lt;code&gt;e1000e&lt;/code&gt;-Treibers liegen. Wenn man dann auch noch die Tatsache beachtet,
+dass der Kernel 2.6.32 als Basis für RHEL6 und alle seine Derivate
+dient, ist dies noch warscheinlicher.&lt;/p&gt;
+
+&lt;p&gt;Das &lt;a href=&#34;http://elrepo.org&#34; title=&#34;http://elrepo.org&#34;&gt;ELRepo-Projekt&lt;/a&gt; stellt
+einige Pakete mit aktuellen Treibern für RHEL-kompatible Distributionen
+bereit, darunter auch einen aktuellen &lt;code&gt;e1000e&lt;/code&gt;. Folgende Befehle binden
+das Repository ein und installieren dann den entsprechenden &lt;code&gt;kmod&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rpm -Uvh http://elrepo.org/elrepo-release-6-4.el6.elrepo.noarch.rpm
+yum -y install kmod-e1000e
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einem Reboot sollte die neue Version des &lt;code&gt;e1000e&lt;/code&gt; benutzt werden
+und dementsprechend das oben beschriebene Problem nicht mehr auftreten.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Chromium unter Fedora</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/chromium-unter-fedora/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/chromium-unter-fedora/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Die Open-Source-Variante von Googles Browser Chrome mit dem Namen
+Chromium ist selbst nur im Quellcode verfügbar und muss deswegen selbst
+kompiliert werden. Da dies ziemlich aufwendig und nicht ganz trivial
+ist, gibt es für die meisten Distributionen sogenannte Binärpakete, wo
+jemand Chromium bereits übersetzt und an die distributionsspezifischen
+Besonderheiten angepasst hat. Den Vorgang für Fedora und einige weitere
+nützliche Infos erklärt dieser Beitrag.&lt;/p&gt;
+
+&lt;p&gt;Um Chromium als Paket installieren zu können, muss ein weiteres
+Repository in das Verzeichnis &lt;code&gt;/etc/yum.repos.d/&lt;/code&gt; eingetragen werden.
+Das Repository wird von einem RedHat-Mitarbeiter namens Tom Callaway
+verwaltet und auch regelmäßig aktualisiert. Durch die hohe Frequenz an
+Veröffentlichung von neuen Chromium-Versionen stehen hier auch fast
+wöchentlich neue Versionen zum Update bereit.&lt;/p&gt;
+
+&lt;p&gt;Laden Sie die folgende Datei herunter und platzieren Sie sie unter
+&lt;code&gt;/etc/yum.repos.d/&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http://repos.fedorapeople.org/repos/spot/chromium/fedora-chromium.repo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Geben Sie nun folgenden Befehl ein, um Chromium zu installieren:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host #] yum install chromium
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Danach finden Sie im Gnome-Menü, im Abschnitt Internet, den Eintrag
+Chromium-Browser, über den Sie den Browser starten können. Um Chromium
+zu konfigurieren klicken Sie auf dem Button mit dem Schraubenschlüssel
+und dann auf Optionen. Dort können Sie z.B. einstellen, dass Chromium
+wie eine native GTK-Anwendung aussieht und sich dadurch besonders gut in
+den Fedora-Desktop integriert. Ebenfalls zu Empfehlen sind die
+Erweiterungen &lt;code&gt;AdBlock&lt;/code&gt; und &lt;code&gt;FlashBlock&lt;/code&gt;, welche sich über den
+Menüeintrag Erweiterungen installieren lassen.&lt;/p&gt;
+
+&lt;p&gt;User-Agent umstellen
+++++++++++++++++++&amp;ndash;&lt;/p&gt;
+
+&lt;p&gt;Ein interessantes Feature an Chromium und auch den meisten anderen
+Browsern ist, dass sie sich als „jemand Anderes“ ausgeben können. Auch
+wenn man über das iPad gespaltener Meinung sein kann, fördert es die
+Verbreitung von Videos, die per HTML5-Videotag in die Webseiten
+eingebunden werden. Dies ist eine exzellente Bewegung, was die
+ungeliebte Technik namens Flash überflüssig machen wird. Nun bieten
+einige Anbieter spezielle Seiten für das iPad an und unterscheiden das
+mit Hilfe des User-Agents, mit welchem sich das iPad den Webservern
+bekannt macht. Um nun die Videos ebenfalls direkt im Browser zu rendern,
+muss der User-Agent von Chromium geändert werden.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;User-Agent des iPads (nicht aktuell):&lt;/em&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.10
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wenn man Chromium nun mit der Option &lt;code&gt;-user-agent&lt;/code&gt; gefolgt von der
+Zeichenkette des iPads aufruft, gibt sich Chromium als iPad der ersten
+Generation aus.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;you@host $] chromium-browser -user-agent=&amp;quot;Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.10&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Eine weitere Option wäre &lt;code&gt;–incognito&lt;/code&gt;, die Chromium direkt im
+Inkognito-Modus startet, wo keine Statistiken oder besuchten Seiten
+gespeichert werden.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Datenbank-Zugriff auf Microsoft SQL-Server von Linux</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/datenbank-zugriff-auf-microsoft-sql-server-von-linux/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/datenbank-zugriff-auf-microsoft-sql-server-von-linux/</guid>
+      <description>
+
+&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Dieser Beitrag beschreibt den Datenbankzugriff auf einen MSSQL-Server
+durch einen Linux-Host, mit Hilfe von
+&lt;a href=&#34;http://unixodbc.org&#34; title=&#34;http://unixodbc.org&#34;&gt;unixODBC&lt;/a&gt;, sowie die Nutzung
+dieser Verbindung durch &lt;a href=&#34;http://perl.org&#34; title=&#34;http://perl.org&#34;&gt;Perl&lt;/a&gt;. Wenn
+man sich eine MySQL Datenbank betrachtet, dann ist die lokal über einen
+Unix-Domain-Socket und über den TCP/IP-Stack an einem bestimmten Port
+erreichbar. Wenn man sich jetzt hingegen den Microsoft SQL-Server
+betrachtet, dann ist der Zugriff auch über Netzwerk möglich, jedoch nur
+über eine Technologie namens ODBC (Open Database Connectivity). Auf
+einem Windows-Host sind die passenden ODBC-Treiber meistens vorhanden,
+auf unixoiden Betriebssystemen ist dafür eine Software wie unixODBC und
+ein passender Treiber notwendig. Für MSSQL und Sybase (der Basis von
+MSSQL) liefert das
+&lt;a href=&#34;http://freetds.org&#34; title=&#34;http://freetds.org&#34;&gt;FreeTDS&lt;/a&gt;-Projekt einen
+passenden ODBC-Treiber.&lt;/p&gt;
+
+&lt;p&gt;Vorraussetzungen
++++++++++++++++-&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;unixODBC&lt;/li&gt;
+&lt;li&gt;FreeTDS&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Diese Tools stehen durch bestimmte Pakete in den Distributionen bereit
+und müssen nur noch installiert werden. Unter
+&lt;a href=&#34;http://fedoraproject.org&#34; title=&#34;http://fedoraproject.org&#34;&gt;Fedora&lt;/a&gt; und RHEL
+sind das die Pakete &lt;code&gt;freetds&lt;/code&gt;, &lt;code&gt;freetds-devel&lt;/code&gt; und &lt;code&gt;unixODBC&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Konfiguration der ODBC-Verbindung
++++++++++++++++++++++++++++++++++&lt;/p&gt;
+
+&lt;h3 id=&#34;publizieren-des-freetds-treibers&#34;&gt;Publizieren des FreeTDS-Treibers&lt;/h3&gt;
+
+&lt;p&gt;Als erstes muss unixODBC der FreeTDS-Treiber beigebracht werden, sodass
+unixODBC darauf zugreifen kann. Dabei erstellt man folgende Datei und
+wendet dann das nachfolgende Kommando darauf an.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[FreeTDS]
+Driver      = /usr/lib/libtdsodbc.so.0
+UsageCount   = 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code&gt;# odbcinst -i -d -f /etc/odbcinst.ini
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Dabei ist zu beachten, dass der Pfad zur libtdsodbc.so variieren kann,
+der nachfolgende Befehl sucht nach passenden Libraries.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# find /usr/lib -regex &amp;quot;libtdsodbc.*&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;erstellen-einer-dsn-data-source-name&#34;&gt;Erstellen einer DSN (Data Source Name)&lt;/h3&gt;
+
+&lt;p&gt;Nachfolgend muss eine DSN erstellt werden, die die notwendigen Parameter
+für die Datenbank-Verbindung festlegt.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[MSSQL]
+Driver   = FreeTDS
+Server   = 192.168.1.10\SQLEXPRESS
+Port      = 1433
+Database  = DATABASE
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code&gt;# odbcinst -i -s -f /etc/odbc.ini
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wenn keine Fehler ausgegeben werden, ist die Verbindung erfolgreich
+hinzugefügt und kann nachfolgend getestet werden.&lt;/p&gt;
+
+&lt;h3 id=&#34;testen-der-verbindung&#34;&gt;Testen der Verbindung&lt;/h3&gt;
+
+&lt;p&gt;Zum Testen der Verbindung bietet unixODBC das Tool &lt;code&gt;isql&lt;/code&gt;, welches
+nachfolgend dargestellt wird, um eine Verbindung zur Datenbank
+herzustellen. Der zweite und dritte Parameter sind dabei Nutzername und
+Passwort für den Datenbank-Nutzer.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# isql -v MSSQL-Perl dbuser sehrsicher
++++++++++++++++++++++++++++++++++++++++++
+| Connected!                            |
+|                                       |
+| sql-statement                         |
+| help [tablename]                      |
+| quit                                  |
+|                                       |
++++++++++++++++++++++++++++++++++++++++++
+SQL&amp;gt; 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In diesem Tool können dann auch SQL-Statements angegeben und abgesetzt
+werden.&lt;/p&gt;
+
+&lt;p&gt;Nutzung der ODBC-Verbindung in Perl
++++++++++++++++++++++++++++++++++&amp;ndash;&lt;/p&gt;
+
+&lt;p&gt;Wie in Perl üblich, verwendet man für Datenbankzugriffe jeglicher Art
+das Modul &lt;a href=&#34;http://dbi.perl.org/&#34; title=&#34;http://dbi.perl.org/&#34;&gt;DBI&lt;/a&gt; (Database
+Interface) und für den Zugriff auf MSSQL-Server ist ebenfalls ein Plugin
+vorhanden. Das Plugin
+&lt;a href=&#34;http://search.cpan.org/~mjevans/DBD-ODBC/ODBC.pm&#34; title=&#34;http://search.cpan.org/~mjevans/DBD-ODBC/ODBC.pm&#34;&gt;DBD::ODBC&lt;/a&gt;
+ist in den Distributionen als Paket vorhanden, wenn dies wie im Falle
+von Fedora nicht der Fall sein sollte, installiert der folgende Befehl
+das Modul mit allen Abhängigkeiten. Als Vorraussetzung gilt, dass dafür
+die devel-Pakete von FreeTDS und unixODBC, sowie die typischen
+Build-Tools (gcc …) installiert sind.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# cpan
+cpan [1]&amp;gt; install DBD::ODBC
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wenn das Kompilieren erfolgreich war, kann man die CPAN-Shell mit
+mehrmaligen STRG-C verlassen.&lt;/p&gt;
+
+&lt;h3 id=&#34;beispiel-sourcecode&#34;&gt;Beispiel Sourcecode&lt;/h3&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/usr/bin/perl -w
+#
+#       unixodbc_perltest.pl
+#
+#       Copyright 2011 Philipp Böhm &amp;lt;philipp-boehm@live.de&amp;gt;
+#
+#       This program is free software; you can redistribute it and/or modify
+#       it under the terms of the GNU General Public License as published by
+#       the Free Software Foundation; either version 2 of the License, or
+#       (at your option) any later version.
+#
+#       This program is distributed in the hope that it will be useful,
+#       but WITHOUT ANY WARRANTY; without even the implied warranty of
+#       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#       GNU General Public License for more details.
+#
+#       You should have received a copy of the GNU General Public License
+#       along with this program; if not, write to the Free Software
+#       Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#       MA 02110-1301, USA.
+#
+#       Erfordert das Perl-Modul DBD::ODBC
+#
+ 
+use strict;
+use Data::Dumper;
+use DBI;
+ 
+################################################################################
+############### SQL-Queries ####################################################
+################################################################################
+my %QUERIES = (
+    ###
+    # Query für MSSQL
+ 
+    &amp;quot;get_call_data&amp;quot; =&amp;gt; q{ SELECT
+                            Id AS CallID,
+                            [Caller-ID] AS SIP,
+                            Start,
+                            [End],
+                            DATEDIFF(second, [Start], [End]) AS Length
+                          FROM Calls
+                          WHERE ((datename(yyyy, Start)) &amp;gt;= 2011)
+                          AND LEN([Caller-ID]) = 4
+                          AND Id &amp;gt; ?;
+                        },
+);
+ 
+################################################################################
+############### Datenbank-Handle erstellen #####################################
+################################################################################
+my $dsn = &amp;quot;MSSQL&amp;quot;; # aus /etc/odbc.ini
+my $dbh = DBI-&amp;gt;connect(
+    &amp;quot;dbi:ODBC:$dsn&amp;quot;, &amp;quot;dbusername&amp;quot;}, &amp;quot;dbpassword&amp;quot;
+) or die &amp;quot;Konnte keine Verbindung zur DB aufbauen: $DBI::errstr&amp;quot;;
+ 
+################################################################################
+############### SELECT-Statement absetzen ######################################
+################################################################################
+my $calldata = $dbh-&amp;gt;prepare( $QUERIES{&amp;quot;get_call_data&amp;quot;} );
+$calldata-&amp;gt;execute(1000);
+ 
+while ( my $line = $calldata-&amp;gt;fetchrow_hashref ) {
+    print Dumper($line);
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Die im Code enthaltenen Kommentare sollten die Funktion des Codes
+ausreichend darstellen.&lt;/p&gt;
+
+&lt;h3 id=&#34;einschränkung&#34;&gt;Einschränkung&lt;/h3&gt;
+
+&lt;p&gt;Eine Beschränkung des FreeTDS-Treiber liegt darin, dass immer nur ein
+Statement-Handle pro Verbindung gleichzeitig bestehen kann. Wenn Sie es
+doch versuchen, ist es wahrscheinlich dass Sie folgenden Fehler
+erhalten:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Invalid cursor state (SQL-24000)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Diese Einschränkung hat Microsoft erst im MSSQL-Server 2005 mit
+Einführung der Technologie
+&lt;code&gt;Multiple Active Result Sets&lt;/code&gt; beseitigt, eine reife Leistung !!.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Fedora 16 Samsung-Laptop Display-Flackern entfernen</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/fedora-16-samsung-laptop-display-flackern-entfernen/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/fedora-16-samsung-laptop-display-flackern-entfernen/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Ein Problem, welches schon in den letzten Tagen von &lt;a href=&#34;http://fedoraproject.org&#34; title=&#34;http://fedoraproject.org&#34;&gt;Fedora 15&lt;/a&gt; aufgetreten
+ist, hat sich in Fedora 16 noch verschlimmert. Es handelt sich dabei um
+einen Bug bei der Änderung der Display-Helligkeit bei Samsung Notebooks,
+die den Treiber &lt;code&gt;samsung_laptop&lt;/code&gt; verwenden. Bei Fedora 15 kam dann ein
+kurzes Flackern, was noch auszuhalten war. In Fedora 16 ist das Problem
+nun so akut, dass beim Ändern der Displayhelligkeit, das Flackern nicht
+wieder aufhört, bis das System einfriert. Eine Lösung für das Problem
+liefert dieser Beitrag.&lt;/p&gt;
+
+&lt;p&gt;Das oben &lt;a href=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=747560&#34; title=&#34;https://bugzilla.redhat.com/show_bug.cgi?id=747560&#34;&gt;beschriebene Problem&lt;/a&gt;
+ist wohl bekannt, und entsprechende Änderungen sind in Kernel 3.2
+integriert, jedoch ist dieser Kernel noch nicht releast und alle
+aktuellen Distributioen setzten entweder auf 3.0 oder 3.1 und enthalten
+deshalb diesen Fehler. Ich sah mich gezwungen, die &lt;a href=&#34;https://lkml.org/lkml/2011/5/13/150&#34; title=&#34;https://lkml.org/lkml/2011/5/13/150&#34;&gt;in 3.2 integrierten Patches&lt;/a&gt;
+auf den aktuellen Fedora-Kernel anzuwenden und einen &lt;a href=&#34;http://fedoraproject.org/wiki/Building_a_custom_kernel&#34; title=&#34;http://fedoraproject.org/wiki/Building_a_custom_kernel&#34;&gt;eigenen Kernel&lt;/a&gt;
+zu bauen.&lt;/p&gt;
+
+&lt;p&gt;Um den gepatchten Kernel zu installieren, speichern Sie folgende Datei
+unter dem Namen &lt;code&gt;tuxorials_kernel.repo&lt;/code&gt; in das Verzeichnis
+&lt;code&gt;/etc/yum.repos.d/&lt;/code&gt; und installieren dann das Paket
+&lt;code&gt;kernel-3.1.0-7.samsungflickerfix.fc16.i686.rpm&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[tuxorials_kernel]
+name=Tuxorials Samsung Non-Flickering Kernel
+baseurl=http://repos.tuxorials.de/kernel_nonflickering/
+enabled=1
+gpgcheck=0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bis der Kernel 3.2 releast ist, ist dies eine adäquate Lösung für das
+Problem. Sie können die Kernel-Pakete vom Update durch yum ausschließen,
+indem Sie &lt;code&gt;exclude kernel&lt;/code&gt; ind die Datei &lt;code&gt;/etc/yum.conf&lt;/code&gt; schreiben.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Fedora auf Samsung N130</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/fedora-auf-samsung-n130/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/fedora-auf-samsung-n130/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Wenn Sie im Besitz eines Samsung N130 Netbooks sind und sich über die
+Freezes, 5 Minuten nach dem Start, ärgern dann gibt es in diesem Beitrag
+die Lösung dafür.&lt;/p&gt;
+
+&lt;p&gt;Das Problem, was die Freude an dem, ansonsten sehr guten Netbook,
+schmälert, ist die Tatsache, dass sich das N130 nach jedem Starten (egal
+ob aus dem Ruhezustand, dem Energiesparen) eine Denkpause von 20
+Sekunden genehmigt.&lt;/p&gt;
+
+&lt;p&gt;In der /var/log/messages ist dann so ein Eintrag zu sehen:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;...
+[  285.804210] ata1.00: status: { DRDY }
+[  290.844079] ata1: link is slow to respond, please be patient (ready=0)
+[  295.828084] ata1: device not ready (errno=-16), forcing hardreset
+[  295.828105] ata1: soft resetting link
+[  296.010535] ata1.00: configured for UDMA/133
+[  296.010584] ata1: EH complete
+...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Das Problem liegt auf Seiten des BIOS, was von Samsung ausgeliefert
+wird. Nach 5 Minuten setzt das BIOS nämlich einen Befehl an den
+Prozessor ab, dass er sich wenn möglich in die Energiesparmodis begeben
+soll, um Energie zu sparen. Dies führt dazu das IRQs verloren gehen,
+darunter auch der für den Festplattencontroller und es bis zu 20
+Sekunden dauert, bis dies durch einen harten Reset gelöst wird. Samsungs
+Versuch, dies mit aktualisierten BIOSen zu lösen, schlug bisher fehl,
+weshalb Tejun Heo einen Patch für den Linux-Kernel entwickelte, der das
+Problem von Seiten des Kernel löst. Dieser Patch hat es bisher nicht in
+die offiziellen Distributionskernel geschafft, weshalb ich mich dazu
+veranlasst sah, einen eigenen Fedora-Kernel mit diesem Patch zu bauen.
+Der Kernel bezieht sich bisher noch auf Fedora 12 auch wenn es sein
+kann, dass im Kernel von Fedora 13 dieser Patch ebenfalls enthalten ist.
+Bis dahin biete ich den Kernel in einem eigenen Repository an.&lt;/p&gt;
+
+&lt;p&gt;Der Bug-Report und der Patch, der das Verhalten behebt, ist im
+Bugtracker auf kernel.org unter &lt;a href=&#34;https://bugzilla.kernel.org/show_bug.cgi?id=14314&#34; title=&#34;https://bugzilla.kernel.org/show_bug.cgi?id=14314&#34;&gt;folgendem Link&lt;/a&gt;
+zu erreichen.&lt;/p&gt;
+
+&lt;p&gt;Bei dem Kernel handelt es sich um den originalen Fedora-Kernel, mit
+allen Upstream-Patches und Anpassungen plus eben den erwähnten Patch.
+Den Vorgang des Bauens eines eigenen Kernels unter Fedora, wird ein
+eigener Artikel beschreiben.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Konfiguration auf dem N130&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;Legen Sie im Verzeichnis &lt;code&gt;/etc/yum.repos.d/&lt;/code&gt; eine neue Datei mit dem
+Namen &lt;code&gt;n130kernel.repo&lt;/code&gt; an und fügen Sie dort folgenden Inhalt hinein:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[n130kernel]
+name=N130 Kernel
+baseurl=http://tuxorials.spacequadrat.de/kernelrepo
+enabled=1
+gpgcheck=0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einem Update mit &lt;code&gt;yum update&lt;/code&gt; sollten Sie die neuen Kernel-Pakete
+erhalten. Wenn Sie nun einen Reboot durchführen, können Sie den neuen
+Kernel testen, der den Zusatz n130 im Versions-String besitzt.&lt;/p&gt;
+
+&lt;p&gt;Sollte es zu einer &lt;code&gt;Kernel Panic&lt;/code&gt; kommen, bitte ich um eine Nachricht
+bzw. Kommentar. Sonst Viel Spaß mit Fedora auf dem N130&lt;/p&gt;
+
+&lt;p&gt;[UPDATE] Jetzt wo Fedora 13 erschienen ist, war ich erst einmal ziemlich
+enttäuscht, weil das neue Fedora-Release noch mit dem Kernel 2.6.33
+ausgeliefert wird. Es ist aber schon ein Update auf die Versionen 2.6.24
+in Arbeit und sollte in der näheren Zukunft automatisch verteilt werden.
+Diese Version beinhaltet speziellen Code, um die bekannten Freezes auf
+dem Samsung N130 zu verhindern.&lt;/p&gt;
+
+&lt;p&gt;Wenn man mit den Freezes bis zum Kernel-Update nicht mehr leben will,
+kann man sich zwei Pakete herunterladen, die einen frühen Build des
+Kernels enthalten. Sie haben sich trotz der kurzen Historie als sehr
+stabil erwiesen.&lt;/p&gt;
+
+&lt;p&gt;Laden Sie sich die beiden folgenden Pakete herunter:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kernel und kernel-headers
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;und führen Sie dann folgenden Befehl aus:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root@host #] yum localinstall --nogpgcheck /pfad/zudenkernel/kernel*
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nach einem Neustart sollte in den neuen Kernel gebootet werden und Sie
+können mit einem Blick in die &lt;code&gt;/var/log/messages&lt;/code&gt; überprüfen, ob der
+oben dargestellte Fehler noch auftritt. Bei mir ist das zum Glück nicht
+der Fall. Sollte es zu einem Fehler kommen, können Sie beim Booten
+einfach einen anderen Kernel auswählen.&lt;/p&gt;
+
+&lt;p&gt;Wenn dieses Update auf den Kernel dann endgültig vollzogen ist, ist
+Fedora die ideale Distribution für das Samsung N130, denn andere
+Distributionen werden erst in Zukunft auf diese Kernel-Version setzen.&lt;/p&gt;
+
+&lt;p&gt;Mit Fedora 13 ist es nun auch endlich möglich, die Display-Helligkeit
+mit der Tastenkombination &lt;code&gt;Fn + Up/Down&lt;/code&gt; zu regeln. [/UPDATE]&lt;/p&gt;
+
+&lt;p&gt;[2. Update] Ich kann heute (01.09.2010) bestätigen, dass Fedora
+offiziell den Kernel 2.6.34-6 verteilt. [/2. UPDATE]&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Fedora: Fingerabdruckscanner einrichten</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/fedora-fingerabdruckscanner-einrichten/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/fedora-fingerabdruckscanner-einrichten/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Wer in seinem Notebook einen Fingerabdruckscanner eingebaut hat, der
+kann unter Linux und unter Fedora im Speziellen damit den Login-Vorgang
+erheblich beschleun igen, indem er seine Finger auf den Scanner legt
+anstatt mit ihnen das Passwort eingibt. Unter Linux bietet das Tool
+&lt;code&gt;fprintd&lt;/code&gt; die nötigen Funktionalitäten (darunter auch ein entsprechendes
+PAM-Modul) und ist z.B. auch in &lt;code&gt;gdm&lt;/code&gt; integriert.&lt;/p&gt;
+
+&lt;p&gt;Das einzige was unter einem aktuellen Fedora eingerichtet werden muss,
+ist der Finger und dies geschieht durch Aufruf des Tools
+&lt;code&gt;fprintd-enroll&lt;/code&gt;, welches mehrmals dazu auffordert, den Finger über den
+Scanner zu ziehen. Wenn dies geschehen ist, erscheint bei Fedora 16,
+unter dem Feld zur Passworteingabe nun der Hinweis, dass nun der Finger
+aufgelegt werden soll. Ebenfalls lässt sich jetzt der Bildschirm mit
+Hilfe des Fingerabdrucks entsperren sowie das Ausführen von Programmen
+mit &lt;code&gt;sudo&lt;/code&gt; ohne Passworteingabe durchführen.&lt;/p&gt;
+
+&lt;p&gt;Ein Problem besteht bei der Nutzung des Fingerabdruckscanners aber,
+nämlich dass der „Schlüsselbund“ von Gnome (&lt;code&gt;gnome-keyring&lt;/code&gt;) nicht
+entsperrt wird, sodass bei Benutzung des Schlüsselbundes eine
+Passwortabfrage erscheint. Jetzt muss man abwägen, ob man die
+Verschlüsselung des Keyrings entfernt oder jedes Mal das Passwort
+eingibt.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Fedora: Installierte Pakete übertragen</title>
+      <link>https://blog.pboehm.org/blog/2012/12/31/fedora-installierte-pakete-%C3%BCbertragen/</link>
+      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2012/12/31/fedora-installierte-pakete-%C3%BCbertragen/</guid>
+      <description>&lt;blockquote&gt;
+&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
+Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Wenn es zur Neuinstallation von Fedora kommt (z.B. wegen einem neuen
+Gerät oder wegen einem neuen Release), dann ist es sehr praktisch, eine
+Liste der installierten Pakete zu haben, diese zu speichern und auf dem
+neuen System wieder einzuspielen. Eine Liste der aktuell auf dem System
+installierten Pakete liefert folgender Befehl, welcher die Liste in die
+Datei &lt;code&gt;pkglist.txt&lt;/code&gt; schreibt:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# rpm -qa | sort &amp;gt; pkglist.txt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wenn man sich diese Datei dann betrachtet, wird man feststellen, dass
+die Pakete Versionsnummern und anderen &lt;code&gt;Ballast&lt;/code&gt; enthalten, welcher sich
+beim Zurückspielen negativ auswirken könnte, weil Pakete nicht gefunden
+werden könnten. Deshalb befreit folgender Befehl die Pakete von dem
+unnützen Ballast und schreibt sie in eine andere Datei:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# cat pkglist.txt | perl -e &#39;while(&amp;lt;STDIN&amp;gt;) { my ($prog) = $_ =~ /(.*?)-\d+/; print $prog, &amp;quot;\n&amp;quot;; }&#39; &amp;gt; cleanpkglist.txt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Interessant an diesem Perl-Konstrukt ist die Verwendung der
+&lt;code&gt;non-greedy&lt;/code&gt;-Quantifiern &lt;code&gt;.*?&lt;/code&gt;, wodurch so wenig wie möglich durch einen
+regulären Ausdruck gematcht wird. Das Rückspielen der Pakete erfolgt nun
+mit folgendem Befehl, wobei der Dateiname entsprechend angepasst werden
+muss:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# yum install `cat cleanpkglist.txt`
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

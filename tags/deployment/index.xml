@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/deployment/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/deployment/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Replacing multiple Vagrant VMs with LXC containers</title>
+      <link>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</link>
+      <pubDate>Fri, 19 Dec 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m currently working in an environment where the development setup consists of
+6 individual VirtualBox VMs handled by &lt;a href=&#34;http://vagrantup.com&#34;&gt;vagrant&lt;/a&gt;. This
+could be a problem on devices with low amount of memory, such as Macbook Air
+&amp;hellip;&lt;/p&gt;
+
+&lt;p&gt;This post describes a setup with a single VM which hosts all other VMs as LXC
+containers with minimal overhead. The tricky part here is the network setup, so
+that your developer machine is in the same network as the containers, which
+then allows direct access to and from the containers.&lt;/p&gt;
+
+&lt;p&gt;This setup also allows the usage of LXC on developer machines running OSX or
+Windows, which normally doesn&amp;rsquo;t support LXC.&lt;/p&gt;
+
+&lt;p&gt;The developer machine and all LXC containers are connected to
+an ethernet bridge &lt;code&gt;lxcbr1&lt;/code&gt; inside the base box. This interface acts like a
+normal ethernet switch and is the key component of this solution.&lt;/p&gt;
+
+&lt;h2 id=&#34;project-layout&#34;&gt;Project Layout&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;.
+├── Vagrantfile
+└── deployment
+    └── Vagrantfile
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;Vagrantfile&lt;/code&gt; in the project root handles the base box and mounts the
+directory &lt;code&gt;deployment/&lt;/code&gt; into the box. Inside the base box, the other
+&lt;code&gt;Vagrantfile&lt;/code&gt; is used for setting up the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-base-box&#34;&gt;The Base Box&lt;/h2&gt;
+
+&lt;h4 id=&#34;vagrantfile&#34;&gt;&lt;code&gt;Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  config.vm.box = &amp;quot;ubuntu/trusty64&amp;quot;
+  config.vm.hostname = &amp;quot;devbox&amp;quot;
+  config.vm.synced_folder &amp;quot;deployment/&amp;quot;, &amp;quot;/deployment&amp;quot;
+  config.vm.network &amp;quot;private_network&amp;quot;, ip: &amp;quot;192.168.42.10&amp;quot;, auto_config: false
+
+  config.vm.provider &amp;quot;virtualbox&amp;quot; do |vb|
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--memory&amp;quot;, &amp;quot;1024&amp;quot;]
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--nicpromisc2&amp;quot;, &amp;quot;allow-all&amp;quot;]
+  end
+
+  config.vm.provision :shell, :inline =&amp;gt; BOX_SETUP_SCRIPT, privileged: false
+  config.vm.provision :shell, :inline =&amp;gt; VAGRANT_STARTUP_SCRIPT, run: &amp;quot;always&amp;quot;, privileged: false
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Pay attention to the &lt;code&gt;--nicpromisc2&lt;/code&gt; argument, which tells VirtualBox to put
+the second interface into promiscuous mode, so that all traffic reaching the
+interface will be transfered. Without this flag, no direct communication
+between the developer machine and any LXC-container would be successful.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;BOX_SETUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+sudo apt-get update
+sudo apt-get install -y lxc lxc-templates cgroup-lite redir bridge-utils
+
+cat &amp;lt;&amp;lt; EOF &amp;gt; /tmp/lxcbr1.cfg
+auto eth1
+iface eth1 inet manual
+        up ifconfig eth1 promisc up
+        down ifconfig eth1 promisc down
+
+auto lxcbr1
+iface lxcbr1 inet static
+    address 192.168.42.10
+    broadcast 192.168.42.255
+    netmask 255.255.255.0
+    bridge_ports eth1
+    bridge_stp off
+    bridge_waitport 0
+    bridge_fd 0
+EOF
+
+sudo mv /tmp/lxcbr1.cfg /etc/network/interfaces.d/lxcbr1.cfg
+
+sudo service networking restart
+sudo ifup lxcbr1
+
+cd /tmp
+wget -q https://dl.bintray.com/mitchellh/vagrant/vagrant_1.6.5_x86_64.deb
+
+sudo dpkg -i vagrant_1.6.5_x86_64.deb
+vagrant plugin install vagrant-lxc
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This script is used once for setting up the base box by installing &lt;code&gt;vagrant&lt;/code&gt;,
+&lt;code&gt;vagrant-lxc&lt;/code&gt;, all dependencies and also configures the &lt;code&gt;lxcbr1&lt;/code&gt;-bridge
+persistently.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;VAGRANT_STARTUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+cd /deployment
+vagrant up
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This provisioner script is executed every time &lt;code&gt;vagrant&lt;/code&gt; starts the base
+box and it boots the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-container-setup&#34;&gt;The Container Setup&lt;/h2&gt;
+
+&lt;h4 id=&#34;deployment-vagrantfile&#34;&gt;&lt;code&gt;deployment/Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+BASE_IMAGE = &amp;quot;fgrehm/precise64-lxc&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.define :lxc1 do |box|
+    box.vm.hostname = &amp;quot;lxc1&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.2/24&amp;quot;
+    end
+  end
+
+  config.vm.define :lxc2 do |box|
+    box.vm.hostname = &amp;quot;lxc2&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.3/24&amp;quot;
+    end
+  end
+
+  # ....
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This &lt;code&gt;Vagrantfile&lt;/code&gt; handles the LXC containers and is the place where you build
+your infrastructure with LXC as a provider.&lt;/p&gt;
+
+&lt;h2 id=&#34;startup&#34;&gt;Startup&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;# from inside your project
+vagrant up
+
+# this should be successful
+ping 192.168.42.2
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Authentication for WebSockets</title>
+      <link>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</link>
+      <pubDate>Sat, 19 Jul 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m using &lt;a href=&#34;https://github.com/joewalnes/websocketd&#34;&gt;websocketd&lt;/a&gt; for a little
+side project, called &lt;a href=&#34;https://github.com/pboehm/webshell&#34;&gt;webshell&lt;/a&gt;, which is a
+little shell in your browser that runs predefined commands. It is obvious that
+this shouldn&amp;rsquo;t be accessible by everyone! So there is a need for
+authentication. For most of my projects I use HTTP Basic Auth, which &lt;a href=&#34;https://code.google.com/p/chromium/issues/detail?id=123862&#34;&gt;is not
+supported&lt;/a&gt; by
+Chrome when using WebSockets. The solution is a cookie based authentication
+built using Lua directly in nginx (used as a reverse proxy).&lt;/p&gt;
+
+&lt;h2 id=&#34;cookie-based-authentication-for-ws&#34;&gt;Cookie-based authentication for WS&lt;/h2&gt;
+
+&lt;p&gt;The Nginx-Lua-integration is available as a separate module, which is available
+through the &lt;code&gt;nginx-extras&lt;/code&gt; package in general. The configuration below should
+be placed in a suitable config file (e.g. &lt;code&gt;/etc/nginx/sites-enabled/default&lt;/code&gt;).&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;init_by_lua &#39;ACCESS_TOKEN_VALUE = ngx.md5(&amp;quot;&amp;quot; .. math.random(10000, 90000))&#39;;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This generates the value for the auth cookie. Please generate a better token
+value in a multi-user environment, as with this, every cookie has the same
+value. For a single user environment this should be no problem. This code runs
+once on nginx startup.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;server {
+    return 404;
+}
+
+server {
+        listen   80;
+        server_name shell.example.org;
+
+        location /auth {
+                auth_basic           &amp;quot;closed site&amp;quot;;
+                auth_basic_user_file /etc/nginx/htpasswd;
+                access_by_lua &#39;
+                    local expires = 3600 * 24 * 30 -- 30 days
+                    ngx.header[&amp;quot;Set-Cookie&amp;quot;] = &amp;quot;ACCESS_TOKEN=&amp;quot; ..
+                                                ACCESS_TOKEN_VALUE ..
+                                               &amp;quot;; Path=/; Expires=&amp;quot; ..
+                                               ngx.cookie_time(ngx.time() + expires)
+                    return ngx.redirect(&amp;quot;/&amp;quot;);                &#39;;
+        }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;First you have to update the value of &lt;code&gt;server_name&lt;/code&gt;. Then you have to generate
+a htpasswd using the &lt;code&gt;htpasswd&lt;/code&gt; command which is part of the apache-utils
+package.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-nginx&#34;&gt;        location / {
+                access_by_lua &#39;
+                    local cookie_value = ngx.var.cookie_ACCESS_TOKEN
+                    if cookie_value == ACCESS_TOKEN_VALUE then
+                        return
+                    end
+
+                    ngx.exec(&amp;quot;/auth/&amp;quot;)
+                &#39;;
+
+                proxy_pass          http://127.0.0.1:8888;
+
+                proxy_http_version  1.1;
+                proxy_set_header    Upgrade $http_upgrade;
+                proxy_set_header    Connection &amp;quot;upgrade&amp;quot;;
+                proxy_set_header    Host            $host;
+                proxy_set_header    X-Real-IP       $remote_addr;
+                proxy_set_header    X-Forwarded-for $remote_addr;
+                proxy_buffering     off;
+                proxy_read_timeout  386400;
+        }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This snippet includes the standard settings for reverse proxying (&lt;code&gt;proxy_*&lt;/code&gt;)
+and another Lua construct, which checks the auth cookie and renders the &lt;code&gt;/auth&lt;/code&gt;
+location in case of a mismatch. Please update the &lt;code&gt;proxy_pass&lt;/code&gt; value so that it
+matches your application needs.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Building a small Web Redirector using Nginx</title>
+      <link>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</link>
+      <pubDate>Sat, 22 Feb 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</guid>
+      <description>
+
+&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
+possibilities what you can do with it. One thing is to write a redirector to
+use subdomains pointing to your profile-pages on several services like Flickr
+or Github. Another purpose could be the redirection of &lt;code&gt;www.DOMAIN&lt;/code&gt; and
+&lt;code&gt;DOMAIN&lt;/code&gt; to &lt;code&gt;blog.DOMAIN&lt;/code&gt;, which could be hosted on Github Pages that is
+limited to one CNAME per page.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h3 id=&#34;dns-settings&#34;&gt;DNS settings&lt;/h3&gt;
+
+&lt;p&gt;To do this kind of redirection, you need access to some host on the internet
+(where Nginx is available), which should have a subdomain pointing to it,
+through a &lt;code&gt;CNAME&lt;/code&gt;-, &lt;code&gt;A&lt;/code&gt;- or &lt;code&gt;AAAA&lt;/code&gt;-Record. In this post, it is
+&lt;code&gt;redirector.example.org&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;For each subdomain, which should be redirected later, you should create a
+&lt;code&gt;CNAME&lt;/code&gt; entry, pointing to your redirector host (&lt;code&gt;redirector.example.org&lt;/code&gt;).&lt;/p&gt;
+
+&lt;h3 id=&#34;nginx-setup&#34;&gt;Nginx setup&lt;/h3&gt;
+
+&lt;p&gt;Nginx should be available as a binary package in most linux distributions and should be installed first. On Ubuntu/Debian you can do it with:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sudo apt-get install nginx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;As the last step, you have to configure Nginx to redirect all your stuff. The
+following path to the configuration file is valid for Ubuntu/Debian. Please
+look for the right path if the path is not valid on your distribution.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;vim /etc/nginx/sites-enabled/default
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;pre&gt;&lt;code&gt;server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name example.org www.example.org;
+	rewrite ^ http://blog.example.org$request_uri? permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name github.example.org git.example.org;
+	rewrite ^ https://github.com/YOUR_USERNAME permanent;
+}
+
+server {
+	root /usr/share/nginx/html;
+	listen 80;
+	server_name flickr.example.org;
+	rewrite ^ http://www.flickr.com/photos/YOUR_USERNAME/ permanent;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With these lines, you will redirect the standard subdomains &lt;code&gt;example.org&lt;/code&gt; and
+&lt;code&gt;www.example.org&lt;/code&gt; to &lt;code&gt;blog.example.org&lt;/code&gt;. &lt;code&gt;git|github.example.org&lt;/code&gt; to your
+Github profile and &lt;code&gt;flickr.example.org&lt;/code&gt; to your Flickr profile.&lt;/p&gt;
+
+&lt;p&gt;For each target you want to redirect to, you have to write one &lt;code&gt;server&lt;/code&gt;-block,
+which listens on the specific subdomains.&lt;/p&gt;
+
+&lt;p&gt;Now you have to restart Nginx:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;service nginx restart
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

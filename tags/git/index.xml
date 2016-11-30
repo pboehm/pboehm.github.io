@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/git/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/git/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>git: simple but powerful workflow</title>
+      <link>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</link>
+      <pubDate>Sun, 31 Mar 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</guid>
+      <description>&lt;p&gt;&lt;code&gt;git&lt;/code&gt; the distributed version control system built for the Linux kernel is widely used
+nowadays and has been adapted by more and more dev-teams. Developing with &lt;code&gt;git&lt;/code&gt;
+in a small team requires a different workflow to &lt;code&gt;push/pull/merge/rebase&lt;/code&gt;
+without any problems. This post describes a minimal workflow, which builds up on
+feature branches on which the developer implements their changes. The
+&lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
+into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Create a feature branch by typing &lt;code&gt;feature MYLITTLEBRANCHNAME&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;A new branch called &lt;code&gt;MYLITTLEBRANCHNAME&lt;/code&gt; has been created and checked out for you&lt;/li&gt;
+&lt;li&gt;You will edit some files and create some commits until your feature is complete&lt;/li&gt;
+&lt;li&gt;Merge your changes into &lt;code&gt;master&lt;/code&gt; by typing &lt;code&gt;merge_with_master&lt;/code&gt;. This will
+checkout the &lt;code&gt;master&lt;/code&gt;-branch and runs a &lt;code&gt;git pull&lt;/code&gt; on it. Now it tries to merge your
+branch. If new commits are added to &lt;code&gt;master&lt;/code&gt; since you created your
+feature-branch, a Fast-Forward-Merge is not possible and &lt;code&gt;merge_with_master&lt;/code&gt;
+asks you if it should rebase your changes on the current &lt;code&gt;master&lt;/code&gt;. If you
+accept this, a &lt;code&gt;git rebase master&lt;/code&gt; will be executed and another attempt to
+merge your code into &lt;code&gt;master&lt;/code&gt; will be started.&lt;/li&gt;
+&lt;li&gt;Your changes are now merged into &lt;code&gt;master&lt;/code&gt; and the feature-branch has been
+deleted. You can now push your code to a remote &lt;code&gt;git&lt;/code&gt;-repo.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;&lt;strong&gt;Installation&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The workflow is implemented as a shell-alias and a shell-function which should
+work in both &lt;code&gt;zsh&lt;/code&gt; and &lt;code&gt;bash&lt;/code&gt;. To install it, copy the following lines into
+your &lt;code&gt;~/.[bash|zsh]rc&lt;/code&gt; and start a new shell-session.&lt;/p&gt;
+
+&lt;script src=&#34;//gist.github.com/pboehm/5282061.js&#34;&gt;&lt;/script&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow in action&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The following shell session shows the workflow in action. A situation, where a
+Fast-Forward-Merge is not possible, is created and than resolved by
+&lt;code&gt;merge_with_master&lt;/code&gt;. All lines started by a &lt;code&gt;$&lt;/code&gt;-sign are shell commands.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ echo &amp;quot;Test&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added README&amp;quot;
+[master (root-commit) 50c0b89] Added README
+1 file changed, 1 insertion(+)
+create mode 100644 README.md
+$ feature README_improvements
+Switched to a new branch &#39;README_improvements&#39;
+$ git checkout master
+Switched to branch &#39;master&#39;
+$ echo &amp;quot;\nTesttest&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Updated README&amp;quot;
+[master 483c7b6] Updated README
+1 file changed, 2 insertions(+)
+$ git checkout README_improvements
+Switched to branch &#39;README_improvements&#39;
+$ echo &amp;quot;*.pyc&amp;quot; &amp;gt;&amp;gt; .gitignore
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added .gitignore&amp;quot;
+[README_improvements 7a84507] Added .gitignore
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+$ merge_with_master
+Switched to branch &#39;master&#39;
+fatal: Not possible to fast-forward, aborting.
+Switched to branch &#39;README_improvements&#39;
+Your are behind master, a clean Merge is not possible!
+Should I rebase it with master and try it again? (y/n) y
+First, rewinding head to replay your work on top of it...
+Applying: Added .gitignore
+Switched to branch &#39;master&#39;
+Updating 483c7b6..49445e7
+Fast-forward
+.gitignore | 1 +
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+Deleted branch README_improvements (was 49445e7).
+You can now &#39;git push&#39; your code
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

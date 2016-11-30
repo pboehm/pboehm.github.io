@@ -1,0 +1,476 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>/dev/pboehm</title>
+    <link>https://blog.pboehm.org/tags/development/index.xml</link>
+    <description>Recent content on /dev/pboehm</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://blog.pboehm.org/tags/development/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Replacing multiple Vagrant VMs with LXC containers</title>
+      <link>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</link>
+      <pubDate>Fri, 19 Dec 2014 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</guid>
+      <description>
+
+&lt;p&gt;I&amp;rsquo;m currently working in an environment where the development setup consists of
+6 individual VirtualBox VMs handled by &lt;a href=&#34;http://vagrantup.com&#34;&gt;vagrant&lt;/a&gt;. This
+could be a problem on devices with low amount of memory, such as Macbook Air
+&amp;hellip;&lt;/p&gt;
+
+&lt;p&gt;This post describes a setup with a single VM which hosts all other VMs as LXC
+containers with minimal overhead. The tricky part here is the network setup, so
+that your developer machine is in the same network as the containers, which
+then allows direct access to and from the containers.&lt;/p&gt;
+
+&lt;p&gt;This setup also allows the usage of LXC on developer machines running OSX or
+Windows, which normally doesn&amp;rsquo;t support LXC.&lt;/p&gt;
+
+&lt;p&gt;The developer machine and all LXC containers are connected to
+an ethernet bridge &lt;code&gt;lxcbr1&lt;/code&gt; inside the base box. This interface acts like a
+normal ethernet switch and is the key component of this solution.&lt;/p&gt;
+
+&lt;h2 id=&#34;project-layout&#34;&gt;Project Layout&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;.
+├── Vagrantfile
+└── deployment
+    └── Vagrantfile
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;Vagrantfile&lt;/code&gt; in the project root handles the base box and mounts the
+directory &lt;code&gt;deployment/&lt;/code&gt; into the box. Inside the base box, the other
+&lt;code&gt;Vagrantfile&lt;/code&gt; is used for setting up the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-base-box&#34;&gt;The Base Box&lt;/h2&gt;
+
+&lt;h4 id=&#34;vagrantfile&#34;&gt;&lt;code&gt;Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  config.vm.box = &amp;quot;ubuntu/trusty64&amp;quot;
+  config.vm.hostname = &amp;quot;devbox&amp;quot;
+  config.vm.synced_folder &amp;quot;deployment/&amp;quot;, &amp;quot;/deployment&amp;quot;
+  config.vm.network &amp;quot;private_network&amp;quot;, ip: &amp;quot;192.168.42.10&amp;quot;, auto_config: false
+
+  config.vm.provider &amp;quot;virtualbox&amp;quot; do |vb|
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--memory&amp;quot;, &amp;quot;1024&amp;quot;]
+     vb.customize [&amp;quot;modifyvm&amp;quot;, :id, &amp;quot;--nicpromisc2&amp;quot;, &amp;quot;allow-all&amp;quot;]
+  end
+
+  config.vm.provision :shell, :inline =&amp;gt; BOX_SETUP_SCRIPT, privileged: false
+  config.vm.provision :shell, :inline =&amp;gt; VAGRANT_STARTUP_SCRIPT, run: &amp;quot;always&amp;quot;, privileged: false
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Pay attention to the &lt;code&gt;--nicpromisc2&lt;/code&gt; argument, which tells VirtualBox to put
+the second interface into promiscuous mode, so that all traffic reaching the
+interface will be transfered. Without this flag, no direct communication
+between the developer machine and any LXC-container would be successful.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;BOX_SETUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+sudo apt-get update
+sudo apt-get install -y lxc lxc-templates cgroup-lite redir bridge-utils
+
+cat &amp;lt;&amp;lt; EOF &amp;gt; /tmp/lxcbr1.cfg
+auto eth1
+iface eth1 inet manual
+        up ifconfig eth1 promisc up
+        down ifconfig eth1 promisc down
+
+auto lxcbr1
+iface lxcbr1 inet static
+    address 192.168.42.10
+    broadcast 192.168.42.255
+    netmask 255.255.255.0
+    bridge_ports eth1
+    bridge_stp off
+    bridge_waitport 0
+    bridge_fd 0
+EOF
+
+sudo mv /tmp/lxcbr1.cfg /etc/network/interfaces.d/lxcbr1.cfg
+
+sudo service networking restart
+sudo ifup lxcbr1
+
+cd /tmp
+wget -q https://dl.bintray.com/mitchellh/vagrant/vagrant_1.6.5_x86_64.deb
+
+sudo dpkg -i vagrant_1.6.5_x86_64.deb
+vagrant plugin install vagrant-lxc
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This script is used once for setting up the base box by installing &lt;code&gt;vagrant&lt;/code&gt;,
+&lt;code&gt;vagrant-lxc&lt;/code&gt;, all dependencies and also configures the &lt;code&gt;lxcbr1&lt;/code&gt;-bridge
+persistently.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;VAGRANT_STARTUP_SCRIPT = &amp;lt;&amp;lt;END
+#!/bin/bash
+
+cd /deployment
+vagrant up
+END
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This provisioner script is executed every time &lt;code&gt;vagrant&lt;/code&gt; starts the base
+box and it boots the LXC containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-container-setup&#34;&gt;The Container Setup&lt;/h2&gt;
+
+&lt;h4 id=&#34;deployment-vagrantfile&#34;&gt;&lt;code&gt;deployment/Vagrantfile&lt;/code&gt;&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-ruby&#34;&gt;VAGRANTFILE_API_VERSION = &amp;quot;2&amp;quot;
+BASE_IMAGE = &amp;quot;fgrehm/precise64-lxc&amp;quot;
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.define :lxc1 do |box|
+    box.vm.hostname = &amp;quot;lxc1&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.2/24&amp;quot;
+    end
+  end
+
+  config.vm.define :lxc2 do |box|
+    box.vm.hostname = &amp;quot;lxc2&amp;quot;
+    box.vm.box = BASE_IMAGE
+    box.vm.provider :lxc do |provider|
+       provider.customize &amp;quot;network.type&amp;quot;, &amp;quot;veth&amp;quot;
+       provider.customize &amp;quot;network.flags&amp;quot;, &amp;quot;up&amp;quot;
+       provider.customize &amp;quot;network.link&amp;quot;, &amp;quot;lxcbr1&amp;quot;
+       provider.customize &amp;quot;network.ipv4&amp;quot;, &amp;quot;192.168.42.3/24&amp;quot;
+    end
+  end
+
+  # ....
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This &lt;code&gt;Vagrantfile&lt;/code&gt; handles the LXC containers and is the place where you build
+your infrastructure with LXC as a provider.&lt;/p&gt;
+
+&lt;h2 id=&#34;startup&#34;&gt;Startup&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;# from inside your project
+vagrant up
+
+# this should be successful
+ping 192.168.42.2
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>git: simple but powerful workflow</title>
+      <link>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</link>
+      <pubDate>Sun, 31 Mar 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/</guid>
+      <description>&lt;p&gt;&lt;code&gt;git&lt;/code&gt; the distributed version control system built for the Linux kernel is widely used
+nowadays and has been adapted by more and more dev-teams. Developing with &lt;code&gt;git&lt;/code&gt;
+in a small team requires a different workflow to &lt;code&gt;push/pull/merge/rebase&lt;/code&gt;
+without any problems. This post describes a minimal workflow, which builds up on
+feature branches on which the developer implements their changes. The
+&lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
+into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Create a feature branch by typing &lt;code&gt;feature MYLITTLEBRANCHNAME&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;A new branch called &lt;code&gt;MYLITTLEBRANCHNAME&lt;/code&gt; has been created and checked out for you&lt;/li&gt;
+&lt;li&gt;You will edit some files and create some commits until your feature is complete&lt;/li&gt;
+&lt;li&gt;Merge your changes into &lt;code&gt;master&lt;/code&gt; by typing &lt;code&gt;merge_with_master&lt;/code&gt;. This will
+checkout the &lt;code&gt;master&lt;/code&gt;-branch and runs a &lt;code&gt;git pull&lt;/code&gt; on it. Now it tries to merge your
+branch. If new commits are added to &lt;code&gt;master&lt;/code&gt; since you created your
+feature-branch, a Fast-Forward-Merge is not possible and &lt;code&gt;merge_with_master&lt;/code&gt;
+asks you if it should rebase your changes on the current &lt;code&gt;master&lt;/code&gt;. If you
+accept this, a &lt;code&gt;git rebase master&lt;/code&gt; will be executed and another attempt to
+merge your code into &lt;code&gt;master&lt;/code&gt; will be started.&lt;/li&gt;
+&lt;li&gt;Your changes are now merged into &lt;code&gt;master&lt;/code&gt; and the feature-branch has been
+deleted. You can now push your code to a remote &lt;code&gt;git&lt;/code&gt;-repo.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;&lt;strong&gt;Installation&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The workflow is implemented as a shell-alias and a shell-function which should
+work in both &lt;code&gt;zsh&lt;/code&gt; and &lt;code&gt;bash&lt;/code&gt;. To install it, copy the following lines into
+your &lt;code&gt;~/.[bash|zsh]rc&lt;/code&gt; and start a new shell-session.&lt;/p&gt;
+
+&lt;script src=&#34;//gist.github.com/pboehm/5282061.js&#34;&gt;&lt;/script&gt;
+
+&lt;p&gt;&lt;strong&gt;The workflow in action&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The following shell session shows the workflow in action. A situation, where a
+Fast-Forward-Merge is not possible, is created and than resolved by
+&lt;code&gt;merge_with_master&lt;/code&gt;. All lines started by a &lt;code&gt;$&lt;/code&gt;-sign are shell commands.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ echo &amp;quot;Test&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added README&amp;quot;
+[master (root-commit) 50c0b89] Added README
+1 file changed, 1 insertion(+)
+create mode 100644 README.md
+$ feature README_improvements
+Switched to a new branch &#39;README_improvements&#39;
+$ git checkout master
+Switched to branch &#39;master&#39;
+$ echo &amp;quot;\nTesttest&amp;quot; &amp;gt;&amp;gt; README.md
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Updated README&amp;quot;
+[master 483c7b6] Updated README
+1 file changed, 2 insertions(+)
+$ git checkout README_improvements
+Switched to branch &#39;README_improvements&#39;
+$ echo &amp;quot;*.pyc&amp;quot; &amp;gt;&amp;gt; .gitignore
+$ git add . &amp;amp;&amp;amp; git commit -am &amp;quot;Added .gitignore&amp;quot;
+[README_improvements 7a84507] Added .gitignore
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+$ merge_with_master
+Switched to branch &#39;master&#39;
+fatal: Not possible to fast-forward, aborting.
+Switched to branch &#39;README_improvements&#39;
+Your are behind master, a clean Merge is not possible!
+Should I rebase it with master and try it again? (y/n) y
+First, rewinding head to replay your work on top of it...
+Applying: Added .gitignore
+Switched to branch &#39;master&#39;
+Updating 483c7b6..49445e7
+Fast-forward
+.gitignore | 1 +
+1 file changed, 1 insertion(+)
+create mode 100644 .gitignore
+Deleted branch README_improvements (was 49445e7).
+You can now &#39;git push&#39; your code
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Extracting field names from Django model instance</title>
+      <link>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</link>
+      <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
+      <description>
+
+&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
+On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
+
+&lt;p&gt;When you define your models you can create an optional inner class &lt;code&gt;Meta&lt;/code&gt; which
+holds some settings like field excludes or the table name in DB. Every model
+instance holds an instance of its Meta class. The examples below make use of a
+model called &lt;code&gt;DomainRequest&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; inst = DomainRequest()
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta
+&amp;lt;Options for DomainRequest&amp;gt;
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.__class__
+django.db.models.options.Options
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.fields
+[&amp;lt;django.db.models.fields.AutoField: id&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: start_date&amp;gt;,
+ &amp;lt;django.db.models.fields.DateField: end_date&amp;gt;,
+ &amp;lt;django.db.models.fields.related.ForeignKey: owner&amp;gt;,
+ &amp;lt;django.db.models.fields.TextField: description&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: status&amp;gt;,
+ &amp;lt;json_field.fields.JSONField: internal_state&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: name&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: provider&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: dns_server&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: cancellation&amp;gt;,
+ &amp;lt;django.db.models.fields.CharField: place&amp;gt;,
+ &amp;lt;django.db.models.fields.BooleanField: as_mail_domain&amp;gt;]
+
+&amp;gt;&amp;gt;&amp;gt; inst._meta.many_to_many
+[&amp;lt;django.contrib.contenttypes.generic.GenericRelation: changelog&amp;gt;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;inst._meta.fields&lt;/code&gt; is a list of field instances where each field has a &lt;code&gt;name&lt;/code&gt;
+attribute. This list only contains normal fields but no Many2Many-, ForeignKey
+or One2One-Relations which are stored separately in &lt;code&gt;inst._meta.many_to_many&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;extracting-field-names&#34;&gt;Extracting field names&lt;/h2&gt;
+
+&lt;p&gt;The following method extracts all field-names as a list. This is is injected
+into &lt;a href=&#34;http://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/&#34;&gt;every model
+instance&lt;/a&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields(self):
+    return [ f.name for f in self._meta.fields + self._meta.many_to_many ]
+
+&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt; Model.fields = fields
+
+&amp;gt;&amp;gt;&amp;gt; inst.fields
+[&#39;id&#39;,
+ &#39;start_date&#39;,
+ &#39;end_date&#39;,
+ &#39;owner&#39;,
+ &#39;description&#39;,
+ &#39;status&#39;,
+ &#39;internal_state&#39;,
+ &#39;name&#39;,
+ &#39;provider&#39;,
+ &#39;dns_server&#39;,
+ &#39;cancellation&#39;,
+ &#39;place&#39;,
+ &#39;as_mail_domain&#39;,
+ &#39;changelog&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;verbose_name&lt;/code&gt; for every field is also included in &lt;code&gt;_meta&lt;/code&gt;.  The follwoing
+method extracts the field name as keys and verbose_name as values as a dict.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@property
+def fields_verbose(self):
+    return dict([ (f.name, f.verbose_name) for f in self._meta.fields + self._meta.many_to_many ])
+
+&amp;gt;&amp;gt;&amp;gt; Model.fields_verbose = fields_verbose
+&amp;gt;&amp;gt;&amp;gt; inst.fields_verbose
+{&#39;as_mail_domain&#39;: u&#39;Freigabe als Maildomain&#39;,
+ &#39;cancellation&#39;: u&#39;K\xfcndigungsfrist&#39;,
+ &#39;changelog&#39;: &#39;changelog&#39;,
+ &#39;description&#39;: &#39;Bemerkungen&#39;,
+ &#39;dns_server&#39;: u&#39;DNS-Server&#39;,
+ &#39;end_date&#39;: &#39;Ablaufdatum&#39;,
+ &#39;id&#39;: &#39;ID&#39;,
+ &#39;internal_state&#39;: &#39;internal state&#39;,
+ &#39;name&#39;: &#39;name&#39;,
+ &#39;owner&#39;: &#39;Verantwortlicher&#39;,
+ &#39;place&#39;: u&#39;Ort im Domainordner&#39;,
+ &#39;provider&#39;: u&#39;Provider&#39;,
+ &#39;start_date&#39;: &#39;start date&#39;,
+ &#39;status&#39;: &#39;status&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Method Injection in Python</title>
+      <link>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</link>
+      <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
+      <description>
+
+&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.&lt;/p&gt;
+
+&lt;!-- more --&gt;
+
+&lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
+
+&lt;p&gt;Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies
+bei der Klassendefinition zu tun. Das ist auch in 99% aller
+Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in
+denen das nicht möglich/nützlich ist:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Bei der Nutzung von Frameworks/Libraries könnte man das Bedürfnis haben, existierende Klassen um eigene Methoden zu erweitern bzw. zu überschreiben.
+
+&lt;ul&gt;
+&lt;li&gt;Man könnte bestrebt sein, die &lt;code&gt;__unicode__&lt;/code&gt;-Methode des User-Models in
+Django mit einer eigenen Implementierung zu überschreiben, die den User im
+folgenden Format liefert &lt;code&gt;Hans Peter (peter)&lt;/code&gt; anstatt &lt;code&gt;&amp;lt;User: peter&amp;gt;&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;die Möglichkeit alle seine Django-Models um eine gemeinsame Methode zu
+erweitern, ohne sie zu kopieren oder andere schlimme Dinge zu tun&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Man hat eine Funktionalität (z.B. Logging-Funktionalität) entwickelt und
+sucht nun nach einer Möglichkeit, diese den nutzenden Klassen bereitzustellen&lt;/li&gt;
+&lt;li&gt;Vielleicht ist auch nur der Weg zur Klassendefinition zu weit oder die Änderungen
+sollen sich nur auf bestimmte Instanzen auswirken&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;funktionen-sind-objekte&#34;&gt;Funktionen sind Objekte!&lt;/h2&gt;
+
+&lt;p&gt;Python ist eine objekt-orientierte Sprache und das, im Gegensatz zu anderen
+Sprachen, auch vollständig. Um das zu beweisen, nachfolgend ein Ausflug nach
+&lt;code&gt;python&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; def test():
+...     return &amp;quot;blog.pboehm.org&amp;quot;
+...
+&amp;gt;&amp;gt;&amp;gt; type(test)
+&amp;lt;type &#39;function&#39;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; isinstance(test, object)
+True
+&amp;gt;&amp;gt;&amp;gt; test()
+&#39;blog.pboehm.org&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wie man hier sieht, ist ein Funktions-Objekt auch nur eine Instanz einer
+Subclass von &lt;code&gt;object&lt;/code&gt;. Genau diese Tatsache bekommt man zu spüren, wenn man
+beim Aufrufen von Funktionen/Methoden die entsprechenden Klammern vergisst und
+dann das entsprechende Funktionsobjekt, anstatt des Rückgabewertes, geliefert
+bekommt.&lt;/p&gt;
+
+&lt;h2 id=&#34;klassen-um-methoden-erweitern&#34;&gt;Klassen um Methoden erweitern&lt;/h2&gt;
+
+&lt;p&gt;Bisher wurde immer von Funktionen gesprochen, im Kontext von Klassen werden
+diese zu Methoden, indem sie auf Instanzen einer Klasse arbeiten. Die Referenz
+auf die eigene Instanz wird in Python explizit mittels &lt;code&gt;self&lt;/code&gt; angegeben, was
+nachfolgend auch zu sehen sein wird.&lt;/p&gt;
+
+&lt;p&gt;In dem nachfolgenden Beispiel soll eine Methode erstellt werden, die einem die
+Model-Fields eines Django-Model als &lt;code&gt;list&lt;/code&gt; liefert. Dafür wird eine Methode
+&lt;code&gt;get_field_names&lt;/code&gt; definiert, die aus der Meta-Klasse die entsprechenden Felder
+heraussucht. Abschließend wird die Methode zur &lt;code&gt;Model&lt;/code&gt;-Klasse von Django
+hinzugefügt.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.db.models import Model
+&amp;gt;&amp;gt;&amp;gt;
+&amp;gt;&amp;gt;&amp;gt; def get_field_names(self):
+...     return [ f.name for f in self._meta.fields ]
+...
+&amp;gt;&amp;gt;&amp;gt; Model.get_field_names = get_field_names
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Die &lt;code&gt;Model&lt;/code&gt;-Klasse besitzt nun eine neue Methode, welche auch an alle erbenden
+Klassen vererbt wird. Auch bereits erstellte Instanzen bekommen diese Methode
+hinzugefügt. Das folgende Beispiel verdeutlicht das, indem es eine Instanz des
+&lt;code&gt;User&lt;/code&gt;-Models erstellt, welche von der &amp;lsquo;Model&amp;rsquo;-Klasse erbt und dann die
+enthaltenen Felder liefert.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;&amp;gt;&amp;gt;&amp;gt; from django.contrib.auth.models import User
+
+&amp;gt;&amp;gt;&amp;gt; u = User()
+&amp;gt;&amp;gt;&amp;gt; u.get_field_names()
+[&#39;id&#39;, &#39;username&#39;, &#39;first_name&#39;, &#39;last_name&#39;, &#39;email&#39;, &#39;password&#39;, &#39;is_staff&#39;, &#39;is_active&#39;, &#39;is_superuser&#39;, &#39;last_login&#39;, &#39;date_joined&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;ausblick&#34;&gt;Ausblick&lt;/h2&gt;
+
+&lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
+zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
+weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>
