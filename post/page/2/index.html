@@ -234,6 +234,56 @@
     
     <div class="postShorten-header">
       <h1 class="postShorten-title" itemprop="headline">
+        <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/">
+          Extracting field names from Django model instance
+        </a>
+      </h1>
+      <div class="post-meta">
+  
+  <time itemprop="datePublished" datetime="2013-02-05T00:00:00Z">
+    Feb 5, 2013
+  </time>
+  
+
+  
+
+</div>
+
+    </div>
+    <div class="postShorten-excerpt" itemprop="articleBody">
+      <p>
+        In Django you will normally work with forms and models. A form instance holds
+a reference (<code>form_instance.fields</code>) to his corresponding fields as a <code>dict</code>.
+On model instances this <code>dict</code> does not exist. This post describes a solution.</p>
+
+<p>
+        <br>
+        <a href="https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/" class="postShorten-excerpt_link link">Continue reading</a>
+        
+      </p>
+    </div>
+  </div>
+  
+</article>
+
+          
+            
+  
+    
+      
+        
+      
+    
+  
+
+
+  
+
+<article class="postShorten postShorten--thumbnailimg-bottom" itemscope itemType="http://schema.org/BlogPosting">
+  <div class="postShorten-wrap">
+    
+    <div class="postShorten-header">
+      <h1 class="postShorten-title" itemprop="headline">
         <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/">
           Method Injection in Python
         </a>
@@ -252,8 +302,12 @@
     </div>
     <div class="postShorten-excerpt" itemprop="articleBody">
       <p>
-        Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser Beitrag.
-Warum? Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies bei der Klassendefinition zu tun. Das ist auch in 99% aller Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in denen das nicht möglich/nützlich ist:
+        Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.</p>
+
+<p>
         <br>
         <a href="https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/" class="postShorten-excerpt_link link">Continue reading</a>
         
@@ -408,55 +462,6 @@ Warum? Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist e
 </article>
 
           
-            
-  
-    
-      
-        
-      
-    
-  
-
-
-  
-
-<article class="postShorten postShorten--thumbnailimg-bottom" itemscope itemType="http://schema.org/BlogPosting">
-  <div class="postShorten-wrap">
-    
-    <div class="postShorten-header">
-      <h1 class="postShorten-title" itemprop="headline">
-        <a class="link-unstyled" href="https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/">
-          Arbeit mit iso-Files unter Linux
-        </a>
-      </h1>
-      <div class="post-meta">
-  
-  <time itemprop="datePublished" datetime="2012-12-31T00:00:00Z">
-    Dec 31, 2012
-  </time>
-  
-
-  
-
-</div>
-
-    </div>
-    <div class="postShorten-excerpt" itemprop="articleBody">
-      <p>
-        Dieser Artikel wurde von tuxorials.de (Dokuwiki) hierher migriert! Mögliche Darstellungsfehler bitte ich zu entschuldigen.
- Die Bereitstellung von CD-Abbildern in Form von iso-Dateien ist in der Open-Source-Welt sehr beliebt und deswegen widme ich einem Beitrag der Verwendung dieser Files unter Linux. Die Norm ISO 9660 beschreibt die Richtlinien für das Dateisystem von CDs bzw. DVDs, woraus auch die Dateiendung entsteht.
-Mounten von normalen iso-Files ++++++++++++++++++++++++++++++
-Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei eingehängt (gemountet) werden.
-        <br>
-        <a href="https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/" class="postShorten-excerpt_link link">Continue reading</a>
-        
-      </p>
-    </div>
-  </div>
-  
-</article>
-
-          
           
   <div class="pagination-bar">
     <ul class="pagination">
@@ -542,6 +547,42 @@ Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei eingehäng
           <div class="media">
             
             <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/">
+                <h3 class="media-heading">SSH Features: Bridging two networks</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Dec 12, 2016
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p>There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use <a href="https://openvpn.net/">OpenVPN</a> or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.</p>
+
+<p>As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:</p>
+
+<blockquote>
+<p>Can I use SSH for that?</p>
+</blockquote>
+
+<p>The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the <code>-w</code> command
+line flag which allows bridging of two ethernet networks using <code>tap</code>-devices.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
               <a class="link-unstyled" href="https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/">
                 <h3 class="media-heading">Replacing multiple Vagrant VMs with LXC containers</h3>
               </a>
@@ -585,8 +626,14 @@ This post describes a setup with a single VM which hosts all other VMs as LXC co
                   Feb 2, 2014
                 </span>
               </span>
-              <div class="media-content hide-xs font-merryweather">When you own a custom domain like me (pboehm.org), there are unlimited possibilities what you can do with it. One thing is to write a redirector to use subdomains pointing to your profile-pages on several services like Flickr or Github. Another purpose could be the redirection of www.DOMAIN and DOMAIN to blog.DOMAIN, which could be hosted on Github Pages that is limited to one CNAME per page.
-DNS settings To do this kind of redirection, you need access to some host on the internet (where Nginx is available), which should have a subdomain pointing to it, through a CNAME-, A- or AAAA-Record.</div>
+              <div class="media-content hide-xs font-merryweather"><p>When you own a custom domain like me (<code>pboehm.org</code>), there are unlimited
+possibilities what you can do with it. One thing is to write a redirector to
+use subdomains pointing to your profile-pages on several services like Flickr
+or Github. Another purpose could be the redirection of <code>www.DOMAIN</code> and
+<code>DOMAIN</code> to <code>blog.DOMAIN</code>, which could be hosted on Github Pages that is
+limited to one CNAME per page.</p>
+
+<p></p></div>
             </div>
             <div style="clear:both;"></div>
             <hr>
@@ -603,7 +650,15 @@ DNS settings To do this kind of redirection, you need access to some host on the
                   Mar 3, 2013
                 </span>
               </span>
-              <div class="media-content hide-xs font-merryweather">git the distributed version control system built for the Linux kernel is widely used nowadays and has been adapted by more and more dev-teams. Developing with git in a small team requires a different workflow to push/pull/merge/rebase without any problems. This post describes a minimal workflow, which builds up on feature branches on which the developer implements their changes. The master-branch tracks the remote changes and the feature branch will be merged into master if the work is done.</div>
+              <div class="media-content hide-xs font-merryweather"><p><code>git</code> the distributed version control system built for the Linux kernel is widely used
+nowadays and has been adapted by more and more dev-teams. Developing with <code>git</code>
+in a small team requires a different workflow to <code>push/pull/merge/rebase</code>
+without any problems. This post describes a minimal workflow, which builds up on
+feature branches on which the developer implements their changes. The
+<code>master</code>-branch tracks the remote changes and the feature branch will be merged
+into <code>master</code> if the work is done.</p>
+
+<p></p></div>
             </div>
             <div style="clear:both;"></div>
             <hr>
@@ -620,8 +675,11 @@ DNS settings To do this kind of redirection, you need access to some host on the
                   Feb 2, 2013
                 </span>
               </span>
-              <div class="media-content hide-xs font-merryweather">In Django you will normally work with forms and models. A form instance holds a reference (form_instance.fields) to his corresponding fields as a dict. On model instances this dict does not exist. This post describes a solution.
-Every model instance has a Meta class instance When you define your models you can create an optional inner class Meta which holds some settings like field excludes or the table name in DB.</div>
+              <div class="media-content hide-xs font-merryweather"><p>In Django you will normally work with forms and models. A form instance holds
+a reference (<code>form_instance.fields</code>) to his corresponding fields as a <code>dict</code>.
+On model instances this <code>dict</code> does not exist. This post describes a solution.</p>
+
+<p></p></div>
             </div>
             <div style="clear:both;"></div>
             <hr>
@@ -638,8 +696,12 @@ Every model instance has a Meta class instance When you define your models you c
                   Jan 1, 2013
                 </span>
               </span>
-              <div class="media-content hide-xs font-merryweather">Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser Beitrag.
-Warum? Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist es, dies bei der Klassendefinition zu tun. Das ist auch in 99% aller Anwendungsfälle die richtige Vorgehensweise, jedoch gibt es einige Szenarien in denen das nicht möglich/nützlich ist:</div>
+              <div class="media-content hide-xs font-merryweather"><p>Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.</p>
+
+<p></p></div>
             </div>
             <div style="clear:both;"></div>
             <hr>
@@ -703,26 +765,6 @@ Warum? Die normale Vorgehensweise beim Hinzufügen von Methoden zu Klassen ist e
             <hr>
           </div>
         
-          <div class="media">
-            
-            <div class="media-body">
-              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2012/12/31/arbeit-mit-iso-files-unter-linux/">
-                <h3 class="media-heading">Arbeit mit iso-Files unter Linux</h3>
-              </a>
-              <span class="media-meta">
-                <span class="media-date text-small">
-                  Dec 12, 2012
-                </span>
-              </span>
-              <div class="media-content hide-xs font-merryweather">Dieser Artikel wurde von tuxorials.de (Dokuwiki) hierher migriert! Mögliche Darstellungsfehler bitte ich zu entschuldigen.
- Die Bereitstellung von CD-Abbildern in Form von iso-Dateien ist in der Open-Source-Welt sehr beliebt und deswegen widme ich einem Beitrag der Verwendung dieser Files unter Linux. Die Norm ISO 9660 beschreibt die Richtlinien für das Dateisystem von CDs bzw. DVDs, woraus auch die Dateiendung entsteht.
-Mounten von normalen iso-Files ++++++++++++++++++++++++++++++
-Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei eingehängt (gemountet) werden.</div>
-            </div>
-            <div style="clear:both;"></div>
-            <hr>
-          </div>
-        
       </div>
     </div>
     <div class="modal-footer">
@@ -730,7 +772,7 @@ Um auf den Inhalt von iso-Dateien zugreifen zu können muss die Datei eingehäng
          data-message-zero="no post found"
          data-message-one="1 post found"
          data-message-other="{n} posts found">
-         64 posts found
+         65 posts found
       </p>
     </div>
   </div>

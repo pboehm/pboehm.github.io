@@ -186,7 +186,7 @@ feature branches on which the developer implements their changes. The
 &lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
 into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
 
@@ -255,8 +255,7 @@ Fast-forward
 create mode 100644 .gitignore
 Deleted branch README_improvements (was 49445e7).
 You can now &#39;git push&#39; your code
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
     <item>
@@ -265,13 +264,11 @@ You can now &#39;git push&#39; your code
       <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
-      <description>
-
-&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+      <description>&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
 a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
 On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
 
@@ -364,8 +361,7 @@ def fields_verbose(self):
  &#39;provider&#39;: u&#39;Provider&#39;,
  &#39;start_date&#39;: &#39;start date&#39;,
  &#39;status&#39;: &#39;status&#39;}
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
     <item>
@@ -374,14 +370,12 @@ def fields_verbose(self):
       <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
-      <description>
-
-&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+      <description>&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
 das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
 machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
 Beitrag.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
 
@@ -468,8 +462,7 @@ enthaltenen Felder liefert.&lt;/p&gt;
 &lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
 zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
 weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
-ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
-</description>
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;</description>
     </item>
     
   </channel>

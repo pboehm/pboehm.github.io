@@ -14,13 +14,11 @@
       <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
-      <description>
-
-&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+      <description>&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
 a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
 On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
 
@@ -113,8 +111,7 @@ def fields_verbose(self):
  &#39;provider&#39;: u&#39;Provider&#39;,
  &#39;start_date&#39;: &#39;start date&#39;,
  &#39;status&#39;: &#39;status&#39;}
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
   </channel>

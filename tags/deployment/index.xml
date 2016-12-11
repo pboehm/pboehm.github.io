@@ -265,16 +265,14 @@ matches your application needs.&lt;/p&gt;
       <pubDate>Sat, 22 Feb 2014 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</guid>
-      <description>
-
-&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
+      <description>&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
 possibilities what you can do with it. One thing is to write a redirector to
 use subdomains pointing to your profile-pages on several services like Flickr
 or Github. Another purpose could be the redirection of &lt;code&gt;www.DOMAIN&lt;/code&gt; and
 &lt;code&gt;DOMAIN&lt;/code&gt; to &lt;code&gt;blog.DOMAIN&lt;/code&gt;, which could be hosted on Github Pages that is
 limited to one CNAME per page.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h3 id=&#34;dns-settings&#34;&gt;DNS settings&lt;/h3&gt;
 
@@ -332,8 +330,7 @@ which listens on the specific subdomains.&lt;/p&gt;
 &lt;p&gt;Now you have to restart Nginx:&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;service nginx restart
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
   </channel>

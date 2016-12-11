@@ -1,0 +1,1047 @@
+
+
+  
+    
+  
+
+
+  
+
+
+  
+
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="generator" content="Hugo 0.17">
+    <title>SSH Features: Bridging two networks ⋅ /dev/pboehm</title>
+    <meta name="author" content="Philipp Böhm">
+    <meta name="keywords" content="">
+
+    <link rel="icon" href="https://blog.pboehm.org/favicon.png">
+    
+
+    
+    <meta name="description" content="There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use OpenVPN or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.
+
+As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:
+
+
+Can I use SSH for that?
+
+
+The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the -w command
+line flag which allows bridging of two ethernet networks using tap-devices.
+
+">
+    <meta property="og:description" content="There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use OpenVPN or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.
+
+As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:
+
+
+Can I use SSH for that?
+
+
+The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the -w command
+line flag which allows bridging of two ethernet networks using tap-devices.
+
+">
+    <meta property="og:type" content="blog">
+    <meta property="og:title" content="SSH Features: Bridging two networks">
+    <meta property="og:url" content="/blog/2016/12/07/ssh-features-bridging-two-networks/">
+    <meta property="og:site_name" content="/dev/pboehm">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="/dev/pboehm">
+    <meta name="twitter:description" content="There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use OpenVPN or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.
+
+As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:
+
+
+Can I use SSH for that?
+
+
+The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the -w command
+line flag which allows bridging of two ethernet networks using tap-devices.
+
+">
+    
+      <meta name="twitter:creator" content="@phboehm">
+    
+    
+
+    
+    
+
+    
+      <meta property="og:image" content="https://blog.pboehm.org/images/user_image.jpg">
+    
+
+    
+    
+    
+
+    
+
+    
+    <link rel="stylesheet" href="https://blog.pboehm.org/css/style-zfzvxnwixwz6qe7xv3xz1eyvlzc7cdfoxrgduk75zpqxib0hatbphiq9sddx.min.css" />
+    
+
+    
+      
+    
+
+    
+    <script src="https://blog.pboehm.org/js/script-lrchyhb5kddxeiejst2qhr1sqb7vhfxkdhrigadzb4moxbk6your91edbeqz.min.js" type="text/javascript"></script>
+    
+  </head>
+
+  <body>
+    <div id="blog">
+      <header id="header" data-behavior="4">
+  <i id="btn-open-sidebar" class="fa fa-lg fa-bars"></i>
+  <div class="header-title">
+    <a class="header-title-link" href="https://blog.pboehm.org/">/dev/pboehm</a>
+  </div>
+  
+    
+      <a class="header-right-picture "
+         href="https://blog.pboehm.org/#about">
+    
+    
+    
+      
+        <img class="header-picture" src="https://blog.pboehm.org/images/user_image.jpg" alt="Author's picture" />
+      
+    
+    </a>
+  
+</header>
+
+      <nav id="sidebar" style="background: rgba(0,0,0,0.25);" data-behavior="4">
+  <div class="sidebar-container">
+    
+      <div class="sidebar-profile">
+        <a href="https://blog.pboehm.org/#about">
+          <img class="sidebar-profile-picture" src="https://blog.pboehm.org/images/user_image.jpg" alt="Author's picture" />
+        </a>
+        <h4 class="sidebar-profile-name">Philipp Böhm</h4>
+        
+          <h5 class="sidebar-profile-bio">developer, photographer, cyclist, human</h5>
+        
+      </div>
+    
+    <ul class="sidebar-buttons">
+      
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-home"></i>
+      <span class="sidebar-button-desc">Blog</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/photos/">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-camera"></i>
+      <span class="sidebar-button-desc">Photos</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/projects/">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-terminal"></i>
+      <span class="sidebar-button-desc">Projects</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/#about">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-question"></i>
+      <span class="sidebar-button-desc">About</span>
+    </a>
+  </li>
+
+    </ul>
+    <ul class="sidebar-buttons">
+      
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://twitter.com/phboehm" target="_blank">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-twitter"></i>
+      <span class="sidebar-button-desc">Twitter</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://github.com/pboehm" target="_blank">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-github"></i>
+      <span class="sidebar-button-desc">GitHub</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://www.flickr.com/photos/pboehm/" target="_blank">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-flickr"></i>
+      <span class="sidebar-button-desc">Flickr</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://www.youtube.com/user/intelsonstnix" target="_blank">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-youtube"></i>
+      <span class="sidebar-button-desc">Youtube</span>
+    </a>
+  </li>
+
+    </ul>
+    <ul class="sidebar-buttons">
+      
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/tags">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-tags"></i>
+      <span class="sidebar-button-desc">Tags</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/archives">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-archive"></i>
+      <span class="sidebar-button-desc">Archives</span>
+    </a>
+  </li>
+
+  <li class="sidebar-button">
+    
+      <a class="sidebar-button-link " href="https://blog.pboehm.org/index.xml">
+    
+      <i class="sidebar-button-icon fa fa-lg fa-rss"></i>
+      <span class="sidebar-button-desc">RSS</span>
+    </a>
+  </li>
+
+    </ul>
+  </div>
+</nav>
+
+      
+
+      <div id="main" data-behavior="4"
+        class="
+               hasCoverMetaIn
+               ">
+        <article class="post" itemscope itemType="http://schema.org/BlogPosting">
+          
+          
+            <div class="post-header main-content-wrap text-left">
+  
+    <h1 class="post-title" itemprop="headline">
+      SSH Features: Bridging two networks
+    </h1>
+  
+  <div class="post-meta">
+  
+  <time itemprop="datePublished" datetime="2016-12-07T22:49:59&#43;01:00">
+    Dec 7, 2016
+  </time>
+  
+
+  
+
+</div>
+
+</div>
+          
+          <div class="post-content markdown" itemprop="articleBody">
+            <div class="main-content-wrap">
+              <p>There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use <a href="https://openvpn.net/">OpenVPN</a> or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.</p>
+
+<p>As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:</p>
+
+<blockquote>
+<p>Can I use SSH for that?</p>
+</blockquote>
+
+<p>The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the <code>-w</code> command
+line flag which allows bridging of two ethernet networks using <code>tap</code>-devices.</p>
+
+<p></p>
+
+<h2 id="bridging-via-tap-devices">Bridging via tap-devices</h2>
+
+<p>VPNs can be implemented on different
+<a href="https://en.wikipedia.org/wiki/OSI_model">OSI</a>-layers which depends on the
+desired network architecture. Usually you have to choose between a Layer-2 or
+Layer-3-VPN which can be compared to connecting two separate network segments
+using either a switch (Layer 2) or a router (Layer 3). Choosing between these
+two types of VPNs also corresponds to the type of virtual network interface
+which have to be used. A Layer-2-VPN requires the usage of a <code>tap</code>-device while
+a Layer-3-VPN is usually implemented using a <code>tun</code>-device.</p>
+
+<p>OpenSSH supports both tunneling on Layer-2 and Layer-3 but the rest of this post
+will focus on Layer-2-VPNs using <code>tap</code>-devices.</p>
+
+<h2 id="prerequisites">Prerequisites</h2>
+
+<p>This feature requires an OpenSSH server to be installed on the remote site
+with the following settings configured in <code>/etc/ssh/sshd_config</code>:</p>
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+<figure class="highlight config">
+  <figcaption>
+    
+      <span>/etc/ssh/sshd_config</span>
+    
+  </figcaption>
+  <table>
+    <tbody>
+      <tr>
+        <td class="gutter">
+          <pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre>
+        </td>
+        <td class="code">
+          <pre class="config code-highlight"># ...
+PermitTunnel yes
+PermitRootLogin yes</pre>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</figure>
+
+<p>As you can see this setup requires root login, because creating tap devices
+normally requires these permissions. <code>PermitRootLogin yes</code> allows login as
+root using a password which is naturally a bad idea. If possible
+<code>PermitRootLogin without-password</code> should be used instead, which allows login
+as root only using public key authentication.</p>
+
+<h3 id="creating-the-tunnel">Creating the tunnel</h3>
+
+<pre><code>root » ssh -o Tunnel=ethernet -w 5:5 -t root@REMOTE_HOST
+</code></pre>
+
+<p>After executing this command with successful authentication a device called
+<code>tap5</code> is created on each side of the tunnel, which works but the interface
+are shut down. The argument <code>-w X:Y</code> specifies which device numbers should
+be used on the local and remote side.</p>
+
+<h2 id="configuring-bridge-interfaces-using-systemd-networkd">Configuring bridge interfaces using systemd-networkd</h2>
+
+<p><code>tap</code>-devices are not that useful without being attached to a real network
+interface. That&rsquo;s the reason why they are normally attached to a bridge
+interface on each side. Setting up bridge interfaces is usually done using
+the <code>brctl</code> command provided by the <code>bridge-utils</code> package. For distributions
+using <code>systemd</code> and its network daemon the following two config files
+will create the bridge interface <code>br-remote</code> in a way that survives a reboot.</p>
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+<figure class="highlight ini">
+  <figcaption>
+    
+      <span>/etc/systemd/network/br-remote.netdev</span>
+    
+  </figcaption>
+  <table>
+    <tbody>
+      <tr>
+        <td class="gutter">
+          <pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre>
+        </td>
+        <td class="code">
+          <pre class="ini code-highlight">[NetDev]
+Name=br-remote
+Kind=bridge</pre>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</figure>
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+<figure class="highlight ini">
+  <figcaption>
+    
+      <span>/etc/systemd/network/br-remote.network</span>
+    
+  </figcaption>
+  <table>
+    <tbody>
+      <tr>
+        <td class="gutter">
+          <pre><span class="line">1</span><br><span class="line">2</span><br></pre>
+        </td>
+        <td class="code">
+          <pre class="ini code-highlight">[Match]
+Name=br-remote</pre>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</figure>
+
+<p>After adding these files the following command has to be executed for the
+network daemon to apply the new configuration:</p>
+
+<pre><code>systemctl restart systemd-networkd
+</code></pre>
+
+<p>Now we have a working bridge interface called <code>br-remote</code> which has no
+interfaces attached to it. Adding the <code>tap5</code> interface to the bridge is done
+by the following command:</p>
+
+<pre><code>root » brctl addif br-remote tap5
+</code></pre>
+
+<h2 id="putting-it-all-together">Putting it all together</h2>
+
+<p>Because the simple SSH command described above requires some additional commands
+to be executed on both sides of the tunnel it would be cool to join these
+commands in a single command executed on the client.</p>
+
+<p>A well known feature of SSH is that the first real argument to the ssh command is
+treated as a command that is executed on the remote side after setting up the
+tunnel. A lesser known feature is that this also exists for the local
+side through the <code>LocalCommand</code> option which executes a command on the local
+side after setting up the SSH tunnel.</p>
+
+<p>The following command assumes that a bridge interface <code>br-local</code> exists on
+the local side while <code>br-remote</code> exists on the remote side:</p>
+
+
+  
+  
+  
+  
+
+
+<figure class="highlight ">
+  <figcaption>
+    
+  </figcaption>
+  <table>
+    <tbody>
+      <tr>
+        <td class="gutter">
+          <pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre>
+        </td>
+        <td class="code">
+          <pre class=" code-highlight">root » ssh -o &#34;PermitLocalCommand=yes&#34; \
+           -o &#34;LocalCommand=brctl addif br-local tap5 &amp;&amp; ifconfig tap5 up&#34; \
+           -o Tunnel=ethernet \
+           -w 5:5 \
+           -t root@REMOTE_HOST \
+           &#34;brctl addif br-remote tap5 &amp;&amp; ifconfig tap5 up&#34;</pre>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</figure>
+              
+            </div>
+          </div>
+          <div id="post-footer" class="post-footer main-content-wrap">
+            
+              
+              
+                <div class="post-footer-tags">
+                  <span class="text-color-light text-small">TAGGED IN</span><br/>
+                  
+  <a class="tag tag--primary tag--small" href="https://blog.pboehm.org//tags/devops/">devops</a>
+
+  <a class="tag tag--primary tag--small" href="https://blog.pboehm.org//tags/ssh/">ssh</a>
+
+  <a class="tag tag--primary tag--small" href="https://blog.pboehm.org//tags/ethernet/">ethernet</a>
+
+  <a class="tag tag--primary tag--small" href="https://blog.pboehm.org//tags/bridging/">bridging</a>
+
+  <a class="tag tag--primary tag--small" href="https://blog.pboehm.org//tags/osi/">osi</a>
+
+                </div>
+              
+            
+            <div class="post-actions-wrap">
+  
+  <nav>
+    <ul class="post-actions post-action-nav">
+      <li class="post-action">
+        
+          <a class="post-action-btn btn btn--disabled">
+        
+          <i class="fa fa-angle-left"></i>
+          <span class="hide-xs hide-sm text-small icon-ml">PREVIOUS</span>
+        </a>
+      </li>
+      <li class="post-action">
+        
+          <a class="post-action-btn btn btn--default tooltip--top" href="https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/" data-tooltip="Replacing multiple Vagrant VMs with LXC containers">
+        
+          <span class="hide-xs hide-sm text-small icon-mr">NEXT</span>
+          <i class="fa fa-angle-right"></i>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <ul class="post-actions post-action-share">
+    <li class="post-action hide-lg hide-md hide-sm">
+      <a class="post-action-btn btn btn--default btn-open-shareoptions" href="#btn-open-shareoptions">
+        <i class="fa fa-share-alt"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://plus.google.com/share?url=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-google-plus"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://www.facebook.com/sharer/sharer.php?u=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-facebook-official"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://twitter.com/intent/tweet?text=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    
+      <li class="post-action">
+        <a class="post-action-btn btn btn--default" href="#disqus_thread">
+          <i class="fa fa-comment-o"></i>
+        </a>
+      </li>
+    
+    <li class="post-action">
+      
+        <a class="post-action-btn btn btn--default" href="#">
+      
+        <i class="fa fa-list"></i>
+      </a>
+    </li>
+  </ul>
+
+</div>
+
+            
+              
+                
+<div id="disqus_thread">
+  <noscript>Please enable JavaScript to view the <a href="//disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+
+
+              
+            
+          </div>
+        </article>
+        <footer id="footer" class="main-content-wrap">
+  <span class="copyrights">
+    &copy; 2016 Philipp Böhm — Licenced under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/ie/">Creative Commons</a>.
+  </span>
+</footer>
+
+      </div>
+      <div id="bottom-bar" class="post-bottom-bar" data-behavior="4">
+        <div class="post-actions-wrap">
+  
+  <nav>
+    <ul class="post-actions post-action-nav">
+      <li class="post-action">
+        
+          <a class="post-action-btn btn btn--disabled">
+        
+          <i class="fa fa-angle-left"></i>
+          <span class="hide-xs hide-sm text-small icon-ml">PREVIOUS</span>
+        </a>
+      </li>
+      <li class="post-action">
+        
+          <a class="post-action-btn btn btn--default tooltip--top" href="https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/" data-tooltip="Replacing multiple Vagrant VMs with LXC containers">
+        
+          <span class="hide-xs hide-sm text-small icon-mr">NEXT</span>
+          <i class="fa fa-angle-right"></i>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <ul class="post-actions post-action-share">
+    <li class="post-action hide-lg hide-md hide-sm">
+      <a class="post-action-btn btn btn--default btn-open-shareoptions" href="#btn-open-shareoptions">
+        <i class="fa fa-share-alt"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://plus.google.com/share?url=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-google-plus"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://www.facebook.com/sharer/sharer.php?u=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-facebook-official"></i>
+      </a>
+    </li>
+    <li class="post-action hide-xs">
+      <a class="post-action-btn btn btn--default" target="new" href="https://twitter.com/intent/tweet?text=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    
+      <li class="post-action">
+        <a class="post-action-btn btn btn--default" href="#disqus_thread">
+          <i class="fa fa-comment-o"></i>
+        </a>
+      </li>
+    
+    <li class="post-action">
+      
+        <a class="post-action-btn btn btn--default" href="#">
+      
+        <i class="fa fa-list"></i>
+      </a>
+    </li>
+  </ul>
+
+</div>
+
+      </div>
+      <div id="share-options-bar" class="share-options-bar" data-behavior="4">
+  <ul class="share-options">
+    <li class="share-option">
+      <a class="share-option-btn" target="new" href="https://plus.google.com/share?url=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-google-plus"></i><span>Share on Google Plus</span>
+      </a>
+    </li>
+    <li class="share-option">
+      <a class="share-option-btn" target="new" href="https://www.facebook.com/sharer/sharer.php?u=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-facebook-official"></i><span>Share on Facebook</span>
+      </a>
+    </li>
+    <li class="share-option">
+      <a class="share-option-btn" target="new" href="https://twitter.com/intent/tweet?text=https%3a%2f%2fblog.pboehm.org%2fblog%2f2016%2f12%2f07%2fssh-features-bridging-two-networks%2f">
+        <i class="fa fa-twitter"></i><span>Share on Twitter</span>
+      </a>
+    </li>
+  </ul>
+</div>
+<div id="share-options-mask" class="share-options-mask"></div>
+    </div>
+    <div id="about">
+  <div id="about-card">
+    <div id="about-btn-close">
+      <i class="fa fa-remove"></i>
+    </div>
+    
+      <img id="about-card-picture" src="https://blog.pboehm.org/images/user_image.jpg" alt="Author's picture" />
+    
+    <h4 id="about-card-name">Philipp Böhm</h4>
+    
+      <div id="about-card-bio">developer, photographer, cyclist, human</div>
+    
+    
+      <div id="about-card-job">
+        <i class="fa fa-briefcase"></i>
+        <br/>
+        Software developer
+      </div>
+    
+    
+      <div id="about-card-location">
+        <i class="fa fa-map-marker"></i>
+        <br/>
+        Rostock ⋅ Germany
+      </div>
+    
+  </div>
+</div>
+
+    <div id="algolia-search-modal" class="modal-container">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="close-button"><i class="fa fa-close"></i></span>
+      <a href="https://algolia.com" target="_blank" class="searchby-algolia text-color-light link-unstyled">
+        <span class="searchby-algolia-text text-color-light text-small">by</span>
+        <img class="searchby-algolia-logo" src="https://www.algolia.com/static_assets/images/press/downloads/algolia-light.svg">
+      </a>
+      <i class="search-icon fa fa-search"></i>
+      <form id="algolia-search-form">
+        <input type="text" id="algolia-search-input" name="search"
+          class="form-control input--large search-input" placeholder="Search "
+          autofocus="autofocus"/>
+      </form>
+    </div>
+    <div class="modal-body">
+      <div class="no-result text-color-light text-center">no post found</div>
+      <div class="results">
+        
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/">
+                <h3 class="media-heading">SSH Features: Bridging two networks</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Dec 12, 2016
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p>There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use <a href="https://openvpn.net/">OpenVPN</a> or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.</p>
+
+<p>As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:</p>
+
+<blockquote>
+<p>Can I use SSH for that?</p>
+</blockquote>
+
+<p>The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&rsquo;ll take a look at the <code>-w</code> command
+line flag which allows bridging of two ethernet networks using <code>tap</code>-devices.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/">
+                <h3 class="media-heading">Replacing multiple Vagrant VMs with LXC containers</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Dec 12, 2014
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather">I&rsquo;m currently working in an environment where the development setup consists of 6 individual VirtualBox VMs handled by vagrant. This could be a problem on devices with low amount of memory, such as Macbook Air &hellip;
+This post describes a setup with a single VM which hosts all other VMs as LXC containers with minimal overhead. The tricky part here is the network setup, so that your developer machine is in the same network as the containers, which then allows direct access to and from the containers.</div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2014/07/19/authentication-for-websockets/">
+                <h3 class="media-heading">Authentication for WebSockets</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Jul 7, 2014
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather">I&rsquo;m using websocketd for a little side project, called webshell, which is a little shell in your browser that runs predefined commands. It is obvious that this shouldn&rsquo;t be accessible by everyone! So there is a need for authentication. For most of my projects I use HTTP Basic Auth, which is not supported by Chrome when using WebSockets. The solution is a cookie based authentication built using Lua directly in nginx (used as a reverse proxy).</div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/">
+                <h3 class="media-heading">Building a small Web Redirector using Nginx</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Feb 2, 2014
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p>When you own a custom domain like me (<code>pboehm.org</code>), there are unlimited
+possibilities what you can do with it. One thing is to write a redirector to
+use subdomains pointing to your profile-pages on several services like Flickr
+or Github. Another purpose could be the redirection of <code>www.DOMAIN</code> and
+<code>DOMAIN</code> to <code>blog.DOMAIN</code>, which could be hosted on Github Pages that is
+limited to one CNAME per page.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/03/31/git-simple-but-powerful-workflow/">
+                <h3 class="media-heading">git: simple but powerful workflow</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Mar 3, 2013
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p><code>git</code> the distributed version control system built for the Linux kernel is widely used
+nowadays and has been adapted by more and more dev-teams. Developing with <code>git</code>
+in a small team requires a different workflow to <code>push/pull/merge/rebase</code>
+without any problems. This post describes a minimal workflow, which builds up on
+feature branches on which the developer implements their changes. The
+<code>master</code>-branch tracks the remote changes and the feature branch will be merged
+into <code>master</code> if the work is done.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/">
+                <h3 class="media-heading">Extracting field names from Django model instance</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Feb 2, 2013
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p>In Django you will normally work with forms and models. A form instance holds
+a reference (<code>form_instance.fields</code>) to his corresponding fields as a <code>dict</code>.
+On model instances this <code>dict</code> does not exist. This post describes a solution.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/">
+                <h3 class="media-heading">Method Injection in Python</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Jan 1, 2013
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"><p>Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
+machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
+Beitrag.</p>
+
+<p></p></div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2013/01/20/git-commit--am-initial-commit/">
+                <h3 class="media-heading">git commit -am &#34;Initial commit&#34;</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Jan 1, 2013
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather">My plan with this blog is, to write about several things I&rsquo;m interested in. Some of my ideas are:
+ describe language concepts and their implementation in different languages solutions for different problems I had in my work on different projects present some of my own projects &hellip;.  </div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2012/12/31/path-anpassen/">
+                <h3 class="media-heading">$PATH anpassen</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Dec 12, 2012
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather">Dieser Artikel wurde von tuxorials.de (Dokuwiki) hierher migriert! Mögliche Darstellungsfehler bitte ich zu entschuldigen.
+ Die Shell-Variable $PATH ist dafür zuständig, Pfade zu Verzeichnissen festzulegen, in denen die Shell nach ausführbaren Dateien sucht und sie so in der Lage ist, diese Dateien ohne explizite Pfadangabe auszuführen. Standardmäßig sind dort alle wichtigen Verzeichnisse wie /bin, /usr/bin, /usr/local/bin, /sbin oder /usr/sbin enthalten, sodass es möglich ist, die Programme cat oder grep ohne Pfadanagbe auszuführen.</div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+          <div class="media">
+            
+            <div class="media-body">
+              <a class="link-unstyled" href="https://blog.pboehm.org/blog/2012/12/31/----terratec-cinergy-t-stick-rc-unter-fedora/">
+                <h3 class="media-heading">-   Terratec Cinergy T Stick RC unter Fedora</h3>
+              </a>
+              <span class="media-meta">
+                <span class="media-date text-small">
+                  Dec 12, 2012
+                </span>
+              </span>
+              <div class="media-content hide-xs font-merryweather"> Beiträge zu Tools: pDownloader, getserieslinks … &gt; &gt; Dieser Artikel wurde von tuxorials.de (Dokuwiki) hierher migriert! &gt; Mögliche Darstellungsfehler bitte ich zu entschuldigen. &gt;
+ Beiträge zu Tools: pDownloader, getserieslinks …
+ Bauen von RPM-Paketen und Erstellen von Yum-Repos
+ Caching von RPM-Paketen (intelligentmirror)
+ Konfiguration von Squid (transparentes Proxying, Authentifizierung, intelligentmirror)
+  </div>
+            </div>
+            <div style="clear:both;"></div>
+            <hr>
+          </div>
+        
+      </div>
+    </div>
+    <div class="modal-footer">
+      <p class="results-count text-medium"
+         data-message-zero="no post found"
+         data-message-one="1 post found"
+         data-message-other="{n} posts found">
+         65 posts found
+      </p>
+    </div>
+  </div>
+</div>
+    
+  
+    
+    <div id="cover" style="background-image:url('https://blog.pboehm.org/images/cover_rostock.jpg');"></div>
+  
+
+
+    
+<script>
+$(document).ready(function() {
+  hljs.configure({ classPrefix: '', useBR: false });
+  $('pre.code-highlight').each(function(i, block) {
+    var code = "";
+    hljs.highlightAuto(block.innerText).value.split(/\r\n|\r|\n/).forEach(function(line) {
+      code += "<span class=\"line\">" + line + "</span><br>";
+    });
+    if (code.length > 0) {
+      block.innerHTML = code;
+    }
+  });
+  $('pre > code').each(function(i, block) {
+    $(this).addClass('codeblock');
+    hljs.highlightBlock(block);
+  });
+});
+</script>
+
+  
+    
+      <script>
+        var disqus_config = function () {
+          this.page.url = 'https:\/\/blog.pboehm.org\/blog\/2016\/12\/07\/ssh-features-bridging-two-networks\/';
+          
+            this.page.identifier = '\/blog\/2016\/12\/07\/ssh-features-bridging-two-networks\/'
+          
+        };
+        (function() {
+          
+          
+          if (window.location.hostname == "localhost") {
+            return;
+          }
+          var d = document, s = d.createElement('script');
+          var disqus_shortname = 'devpboehm';
+          s.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+
+          s.setAttribute('data-timestamp', +new Date());
+          (d.head || d.body).appendChild(s);
+        })();
+      </script>
+    
+  
+
+
+
+  </body>
+</html>

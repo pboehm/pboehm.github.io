@@ -9,6 +9,234 @@
     <atom:link href="https://blog.pboehm.org/tags/devops/index.xml" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>SSH Features: Bridging two networks</title>
+      <link>https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/</link>
+      <pubDate>Wed, 07 Dec 2016 22:49:59 +0100</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/</guid>
+      <description>&lt;p&gt;There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use &lt;a href=&#34;https://openvpn.net/&#34;&gt;OpenVPN&lt;/a&gt; or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.&lt;/p&gt;
+
+&lt;p&gt;As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Can I use SSH for that?&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&amp;rsquo;ll take a look at the &lt;code&gt;-w&lt;/code&gt; command
+line flag which allows bridging of two ethernet networks using &lt;code&gt;tap&lt;/code&gt;-devices.&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;bridging-via-tap-devices&#34;&gt;Bridging via tap-devices&lt;/h2&gt;
+
+&lt;p&gt;VPNs can be implemented on different
+&lt;a href=&#34;https://en.wikipedia.org/wiki/OSI_model&#34;&gt;OSI&lt;/a&gt;-layers which depends on the
+desired network architecture. Usually you have to choose between a Layer-2 or
+Layer-3-VPN which can be compared to connecting two separate network segments
+using either a switch (Layer 2) or a router (Layer 3). Choosing between these
+two types of VPNs also corresponds to the type of virtual network interface
+which have to be used. A Layer-2-VPN requires the usage of a &lt;code&gt;tap&lt;/code&gt;-device while
+a Layer-3-VPN is usually implemented using a &lt;code&gt;tun&lt;/code&gt;-device.&lt;/p&gt;
+
+&lt;p&gt;OpenSSH supports both tunneling on Layer-2 and Layer-3 but the rest of this post
+will focus on Layer-2-VPNs using &lt;code&gt;tap&lt;/code&gt;-devices.&lt;/p&gt;
+
+&lt;h2 id=&#34;prerequisites&#34;&gt;Prerequisites&lt;/h2&gt;
+
+&lt;p&gt;This feature requires an OpenSSH server to be installed on the remote site
+with the following settings configured in &lt;code&gt;/etc/ssh/sshd_config&lt;/code&gt;:&lt;/p&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight config&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/ssh/sshd_config&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;config code-highlight&#34;&gt;# ...
+PermitTunnel yes
+PermitRootLogin yes&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+&lt;p&gt;As you can see this setup requires root login, because creating tap devices
+normally requires these permissions. &lt;code&gt;PermitRootLogin yes&lt;/code&gt; allows login as
+root using a password which is naturally a bad idea. If possible
+&lt;code&gt;PermitRootLogin without-password&lt;/code&gt; should be used instead, which allows login
+as root only using public key authentication.&lt;/p&gt;
+
+&lt;h3 id=&#34;creating-the-tunnel&#34;&gt;Creating the tunnel&lt;/h3&gt;
+
+&lt;pre&gt;&lt;code&gt;root » ssh -o Tunnel=ethernet -w 5:5 -t root@REMOTE_HOST
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;After executing this command with successful authentication a device called
+&lt;code&gt;tap5&lt;/code&gt; is created on each side of the tunnel, which works but the interface
+are shut down. The argument &lt;code&gt;-w X:Y&lt;/code&gt; specifies which device numbers should
+be used on the local and remote side.&lt;/p&gt;
+
+&lt;h2 id=&#34;configuring-bridge-interfaces-using-systemd-networkd&#34;&gt;Configuring bridge interfaces using systemd-networkd&lt;/h2&gt;
+
+&lt;p&gt;&lt;code&gt;tap&lt;/code&gt;-devices are not that useful without being attached to a real network
+interface. That&amp;rsquo;s the reason why they are normally attached to a bridge
+interface on each side. Setting up bridge interfaces is usually done using
+the &lt;code&gt;brctl&lt;/code&gt; command provided by the &lt;code&gt;bridge-utils&lt;/code&gt; package. For distributions
+using &lt;code&gt;systemd&lt;/code&gt; and its network daemon the following two config files
+will create the bridge interface &lt;code&gt;br-remote&lt;/code&gt; in a way that survives a reboot.&lt;/p&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight ini&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/systemd/network/br-remote.netdev&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;ini code-highlight&#34;&gt;[NetDev]
+Name=br-remote
+Kind=bridge&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight ini&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/systemd/network/br-remote.network&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;ini code-highlight&#34;&gt;[Match]
+Name=br-remote&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+&lt;p&gt;After adding these files the following command has to be executed for the
+network daemon to apply the new configuration:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;systemctl restart systemd-networkd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we have a working bridge interface called &lt;code&gt;br-remote&lt;/code&gt; which has no
+interfaces attached to it. Adding the &lt;code&gt;tap5&lt;/code&gt; interface to the bridge is done
+by the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root » brctl addif br-remote tap5
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;putting-it-all-together&#34;&gt;Putting it all together&lt;/h2&gt;
+
+&lt;p&gt;Because the simple SSH command described above requires some additional commands
+to be executed on both sides of the tunnel it would be cool to join these
+commands in a single command executed on the client.&lt;/p&gt;
+
+&lt;p&gt;A well known feature of SSH is that the first real argument to the ssh command is
+treated as a command that is executed on the remote side after setting up the
+tunnel. A lesser known feature is that this also exists for the local
+side through the &lt;code&gt;LocalCommand&lt;/code&gt; option which executes a command on the local
+side after setting up the SSH tunnel.&lt;/p&gt;
+
+&lt;p&gt;The following command assumes that a bridge interface &lt;code&gt;br-local&lt;/code&gt; exists on
+the local side while &lt;code&gt;br-remote&lt;/code&gt; exists on the remote side:&lt;/p&gt;
+
+
+  
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight &#34;&gt;
+  &lt;figcaption&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;6&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34; code-highlight&#34;&gt;root » ssh -o &amp;#34;PermitLocalCommand=yes&amp;#34; \
+           -o &amp;#34;LocalCommand=brctl addif br-local tap5 &amp;amp;&amp;amp; ifconfig tap5 up&amp;#34; \
+           -o Tunnel=ethernet \
+           -w 5:5 \
+           -t root@REMOTE_HOST \
+           &amp;#34;brctl addif br-remote tap5 &amp;amp;&amp;amp; ifconfig tap5 up&amp;#34;&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;</description>
+    </item>
+    
+    <item>
       <title>Replacing multiple Vagrant VMs with LXC containers</title>
       <link>https://blog.pboehm.org/blog/2014/12/19/replacing-multiple-vagrant-vms-with-lxc-containers/</link>
       <pubDate>Fri, 19 Dec 2014 00:00:00 +0000</pubDate>
@@ -186,7 +414,7 @@ feature branches on which the developer implements their changes. The
 &lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
 into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
 
@@ -255,8 +483,7 @@ Fast-forward
 create mode 100644 .gitignore
 Deleted branch README_improvements (was 49445e7).
 You can now &#39;git push&#39; your code
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
   </channel>

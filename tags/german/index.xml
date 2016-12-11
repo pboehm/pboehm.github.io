@@ -14,14 +14,12 @@
       <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
-      <description>
-
-&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+      <description>&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
 das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
 machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
 Beitrag.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
 
@@ -108,8 +106,7 @@ enthaltenen Felder liefert.&lt;/p&gt;
 &lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
 zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
 weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
-ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
-</description>
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;</description>
     </item>
     
     <item>

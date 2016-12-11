@@ -6,8 +6,236 @@
     <description>Recent content in Post-rsses on /dev/pboehm</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Fri, 19 Dec 2014 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Wed, 07 Dec 2016 22:49:59 +0100</lastBuildDate>
     <atom:link href="https://blog.pboehm.org/post/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>SSH Features: Bridging two networks</title>
+      <link>https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/</link>
+      <pubDate>Wed, 07 Dec 2016 22:49:59 +0100</pubDate>
+      
+      <guid>https://blog.pboehm.org/blog/2016/12/07/ssh-features-bridging-two-networks/</guid>
+      <description>&lt;p&gt;There are many cases where two networks have to be connected on Layer 2 in a
+virtual fashion, which is referred to as a Virtual Private Network (VPN).
+Typically you would use &lt;a href=&#34;https://openvpn.net/&#34;&gt;OpenVPN&lt;/a&gt; or similar software
+for that. All of these tools have in common that they require some non trivial
+setup steps like setting up a PKI or exchanging keys or certificates in a
+safe way.&lt;/p&gt;
+
+&lt;p&gt;As a programmer, setting up a full fledged VPN software for a development
+environment which is destroyed regularly seems not be the best option. A
+question that normally comes to my mind in these moments is:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Can I use SSH for that?&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The answer is usually YES, like in this case. For the first part of an ongoing
+series about little known SSH features, we&amp;rsquo;ll take a look at the &lt;code&gt;-w&lt;/code&gt; command
+line flag which allows bridging of two ethernet networks using &lt;code&gt;tap&lt;/code&gt;-devices.&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;bridging-via-tap-devices&#34;&gt;Bridging via tap-devices&lt;/h2&gt;
+
+&lt;p&gt;VPNs can be implemented on different
+&lt;a href=&#34;https://en.wikipedia.org/wiki/OSI_model&#34;&gt;OSI&lt;/a&gt;-layers which depends on the
+desired network architecture. Usually you have to choose between a Layer-2 or
+Layer-3-VPN which can be compared to connecting two separate network segments
+using either a switch (Layer 2) or a router (Layer 3). Choosing between these
+two types of VPNs also corresponds to the type of virtual network interface
+which have to be used. A Layer-2-VPN requires the usage of a &lt;code&gt;tap&lt;/code&gt;-device while
+a Layer-3-VPN is usually implemented using a &lt;code&gt;tun&lt;/code&gt;-device.&lt;/p&gt;
+
+&lt;p&gt;OpenSSH supports both tunneling on Layer-2 and Layer-3 but the rest of this post
+will focus on Layer-2-VPNs using &lt;code&gt;tap&lt;/code&gt;-devices.&lt;/p&gt;
+
+&lt;h2 id=&#34;prerequisites&#34;&gt;Prerequisites&lt;/h2&gt;
+
+&lt;p&gt;This feature requires an OpenSSH server to be installed on the remote site
+with the following settings configured in &lt;code&gt;/etc/ssh/sshd_config&lt;/code&gt;:&lt;/p&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight config&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/ssh/sshd_config&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;config code-highlight&#34;&gt;# ...
+PermitTunnel yes
+PermitRootLogin yes&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+&lt;p&gt;As you can see this setup requires root login, because creating tap devices
+normally requires these permissions. &lt;code&gt;PermitRootLogin yes&lt;/code&gt; allows login as
+root using a password which is naturally a bad idea. If possible
+&lt;code&gt;PermitRootLogin without-password&lt;/code&gt; should be used instead, which allows login
+as root only using public key authentication.&lt;/p&gt;
+
+&lt;h3 id=&#34;creating-the-tunnel&#34;&gt;Creating the tunnel&lt;/h3&gt;
+
+&lt;pre&gt;&lt;code&gt;root » ssh -o Tunnel=ethernet -w 5:5 -t root@REMOTE_HOST
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;After executing this command with successful authentication a device called
+&lt;code&gt;tap5&lt;/code&gt; is created on each side of the tunnel, which works but the interface
+are shut down. The argument &lt;code&gt;-w X:Y&lt;/code&gt; specifies which device numbers should
+be used on the local and remote side.&lt;/p&gt;
+
+&lt;h2 id=&#34;configuring-bridge-interfaces-using-systemd-networkd&#34;&gt;Configuring bridge interfaces using systemd-networkd&lt;/h2&gt;
+
+&lt;p&gt;&lt;code&gt;tap&lt;/code&gt;-devices are not that useful without being attached to a real network
+interface. That&amp;rsquo;s the reason why they are normally attached to a bridge
+interface on each side. Setting up bridge interfaces is usually done using
+the &lt;code&gt;brctl&lt;/code&gt; command provided by the &lt;code&gt;bridge-utils&lt;/code&gt; package. For distributions
+using &lt;code&gt;systemd&lt;/code&gt; and its network daemon the following two config files
+will create the bridge interface &lt;code&gt;br-remote&lt;/code&gt; in a way that survives a reboot.&lt;/p&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight ini&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/systemd/network/br-remote.netdev&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;ini code-highlight&#34;&gt;[NetDev]
+Name=br-remote
+Kind=bridge&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+
+  
+    
+  
+  
+    
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight ini&#34;&gt;
+  &lt;figcaption&gt;
+    
+      &lt;span&gt;/etc/systemd/network/br-remote.network&lt;/span&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34;ini code-highlight&#34;&gt;[Match]
+Name=br-remote&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;
+
+&lt;p&gt;After adding these files the following command has to be executed for the
+network daemon to apply the new configuration:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;systemctl restart systemd-networkd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we have a working bridge interface called &lt;code&gt;br-remote&lt;/code&gt; which has no
+interfaces attached to it. Adding the &lt;code&gt;tap5&lt;/code&gt; interface to the bridge is done
+by the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;root » brctl addif br-remote tap5
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;putting-it-all-together&#34;&gt;Putting it all together&lt;/h2&gt;
+
+&lt;p&gt;Because the simple SSH command described above requires some additional commands
+to be executed on both sides of the tunnel it would be cool to join these
+commands in a single command executed on the client.&lt;/p&gt;
+
+&lt;p&gt;A well known feature of SSH is that the first real argument to the ssh command is
+treated as a command that is executed on the remote side after setting up the
+tunnel. A lesser known feature is that this also exists for the local
+side through the &lt;code&gt;LocalCommand&lt;/code&gt; option which executes a command on the local
+side after setting up the SSH tunnel.&lt;/p&gt;
+
+&lt;p&gt;The following command assumes that a bridge interface &lt;code&gt;br-local&lt;/code&gt; exists on
+the local side while &lt;code&gt;br-remote&lt;/code&gt; exists on the remote side:&lt;/p&gt;
+
+
+  
+  
+  
+  
+
+
+&lt;figure class=&#34;highlight &#34;&gt;
+  &lt;figcaption&gt;
+    
+  &lt;/figcaption&gt;
+  &lt;table&gt;
+    &lt;tbody&gt;
+      &lt;tr&gt;
+        &lt;td class=&#34;gutter&#34;&gt;
+          &lt;pre&gt;&lt;span class=&#34;line&#34;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&#34;line&#34;&gt;6&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;
+        &lt;/td&gt;
+        &lt;td class=&#34;code&#34;&gt;
+          &lt;pre class=&#34; code-highlight&#34;&gt;root » ssh -o &amp;#34;PermitLocalCommand=yes&amp;#34; \
+           -o &amp;#34;LocalCommand=brctl addif br-local tap5 &amp;amp;&amp;amp; ifconfig tap5 up&amp;#34; \
+           -o Tunnel=ethernet \
+           -w 5:5 \
+           -t root@REMOTE_HOST \
+           &amp;#34;brctl addif br-remote tap5 &amp;amp;&amp;amp; ifconfig tap5 up&amp;#34;&lt;/pre&gt;
+        &lt;/td&gt;
+      &lt;/tr&gt;
+    &lt;/tbody&gt;
+  &lt;/table&gt;
+&lt;/figure&gt;</description>
+    </item>
     
     <item>
       <title>Replacing multiple Vagrant VMs with LXC containers</title>
@@ -266,16 +494,14 @@ matches your application needs.&lt;/p&gt;
       <pubDate>Sat, 22 Feb 2014 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2014/02/22/building-a-small-web-redirector-using-nginx/</guid>
-      <description>
-
-&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
+      <description>&lt;p&gt;When you own a custom domain like me (&lt;code&gt;pboehm.org&lt;/code&gt;), there are unlimited
 possibilities what you can do with it. One thing is to write a redirector to
 use subdomains pointing to your profile-pages on several services like Flickr
 or Github. Another purpose could be the redirection of &lt;code&gt;www.DOMAIN&lt;/code&gt; and
 &lt;code&gt;DOMAIN&lt;/code&gt; to &lt;code&gt;blog.DOMAIN&lt;/code&gt;, which could be hosted on Github Pages that is
 limited to one CNAME per page.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h3 id=&#34;dns-settings&#34;&gt;DNS settings&lt;/h3&gt;
 
@@ -333,8 +559,7 @@ which listens on the specific subdomains.&lt;/p&gt;
 &lt;p&gt;Now you have to restart Nginx:&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;service nginx restart
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
     <item>
@@ -351,7 +576,7 @@ feature branches on which the developer implements their changes. The
 &lt;code&gt;master&lt;/code&gt;-branch tracks the remote changes and the feature branch will be merged
 into &lt;code&gt;master&lt;/code&gt; if the work is done.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;p&gt;&lt;strong&gt;The workflow requires the following steps:&lt;/strong&gt;&lt;/p&gt;
 
@@ -420,8 +645,7 @@ Fast-forward
 create mode 100644 .gitignore
 Deleted branch README_improvements (was 49445e7).
 You can now &#39;git push&#39; your code
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
     <item>
@@ -430,13 +654,11 @@ You can now &#39;git push&#39; your code
       <pubDate>Tue, 05 Feb 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/02/05/extracting-field-names-from-django-model-instance/</guid>
-      <description>
-
-&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
+      <description>&lt;p&gt;In Django you will normally work with forms and models. A form instance holds
 a reference (&lt;code&gt;form_instance.fields&lt;/code&gt;) to his corresponding fields as a &lt;code&gt;dict&lt;/code&gt;.
 On model instances this &lt;code&gt;dict&lt;/code&gt; does not exist. This post describes a solution.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;every-model-instance-has-a-meta-class-instance&#34;&gt;Every model instance has a Meta class instance&lt;/h2&gt;
 
@@ -529,8 +751,7 @@ def fields_verbose(self):
  &#39;provider&#39;: u&#39;Provider&#39;,
  &#39;start_date&#39;: &#39;start date&#39;,
  &#39;status&#39;: &#39;status&#39;}
-&lt;/code&gt;&lt;/pre&gt;
-</description>
+&lt;/code&gt;&lt;/pre&gt;</description>
     </item>
     
     <item>
@@ -539,14 +760,12 @@ def fields_verbose(self):
       <pubDate>Sat, 26 Jan 2013 00:00:00 +0000</pubDate>
       
       <guid>https://blog.pboehm.org/blog/2013/01/26/method-injection-in-python/</guid>
-      <description>
-
-&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
+      <description>&lt;p&gt;Als ersten Beitrag im Blog, gleich mal ein recht interessantes Thema, nämlich
 das dynamische Hinzufügen von Methoden zu bestehenden Klassen. Warum man das
 machen möchte und verschiedene Möglichkeiten dies umzusetzen, beschreibt dieser
 Beitrag.&lt;/p&gt;
 
-&lt;!-- more --&gt;
+&lt;p&gt;&lt;/p&gt;
 
 &lt;h2 id=&#34;warum&#34;&gt;Warum?&lt;/h2&gt;
 
@@ -633,8 +852,7 @@ enthaltenen Felder liefert.&lt;/p&gt;
 &lt;p&gt;Mit den hier dargestellten Möglichkeiten sind die Grundlagen gelegt. In einem
 zusätzlichen Beitrag wird es dann um Mixins und Decorators gehen, die einem
 weitere Möglichkeiten bieten oder die hier dargestellten Möglichkeiten hinter
-ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;
-</description>
+ein bisschen Syntactic Sugar verbergen.&lt;/p&gt;</description>
     </item>
     
     <item>
@@ -1101,79 +1319,6 @@ Lautstärkepegels ermöglicht.&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;alsamixer -Dhw -c1
 &lt;/code&gt;&lt;/pre&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Centos 6.0: Problem mit Intel-NICs und dem Treiber e1000e</title>
-      <link>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</link>
-      <pubDate>Mon, 31 Dec 2012 00:00:00 +0000</pubDate>
-      
-      <guid>https://blog.pboehm.org/blog/2012/12/31/centos-6.0-problem-mit-intel-nics-und-dem-treiber-e1000e/</guid>
-      <description>&lt;blockquote&gt;
-&lt;p&gt;Dieser Artikel wurde von &lt;a href=&#34;http://tuxorials.de&#34;&gt;tuxorials.de&lt;/a&gt; (Dokuwiki) hierher migriert!
-Mögliche Darstellungsfehler bitte ich zu entschuldigen.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Als ich das aktuelle &lt;a href=&#34;http://centos.org&#34; title=&#34;http://centos.org&#34;&gt;CentOS&lt;/a&gt;,
-ein Nachbau von &lt;a href=&#34;http://redhat.com&#34; title=&#34;http://redhat.com&#34;&gt;Redhat&lt;/a&gt;
-Enterprise Linux (RHEL), auf einigen halbwegs aktuellen HP-Workstations
-installieren wollte, kam es zu Problemen mit den verbauten Intel
-Gigabit-NICs (82566DM), welches den Aufbau einer Netzwerk-Verbindung
-verhinderte. Das Mysteriöse an diesem Fehler war die Tatsache, dass er
-nur auftrat, wenn die Workstations an einem FastEthernet-Switch hingen.
-Bei direkten Anschluss an einem Gigabit-Switch trat dieses Problem nicht
-auf und es konnte dort problemlos eine Verbindung hergestellt werden.
-Eine tiefgreifende Beschreibung des Problems, sowie eine Lösung für
-dieses Problem liefert dieser Beitrag.&lt;/p&gt;
-
-&lt;p&gt;Ein &lt;code&gt;lspci&lt;/code&gt; lieferte auf den Workstations folgendes Ergebnis:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;00:00.0 Host bridge: Intel Corporation 82Q963/Q965 Memory Controller Hub (rev 02)
-00:02.0 VGA compatible controller: Intel Corporation 82Q963/Q965 Integrated Graphics Controller (rev 02)
-00:03.0 Communication controller: Intel Corporation 82Q963/Q965 HECI Controller (rev 02)
-00:19.0 Ethernet controller: Intel Corporation 82566DM Gigabit Network Connection (rev 02)
-00:1a.0 USB Controller: Intel Corporation 82801H (ICH8 Family) USB UHCI Controller #4 (rev 02)
-......
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Ein Blick in die Datei &lt;code&gt;/var/log/messages&lt;/code&gt; förderte zahlreiche Meldungen
-durch den Treiber &lt;code&gt;e1000e&lt;/code&gt; zu Tage, welche nachfolgend auszugsweise
-dargestellt sind:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Aug 15 15:13:29 agent31 kernel: e1000e: Intel(R) PRO/1000 Network Driver - 1.2.7-k2
-Aug 15 15:13:29 agent31 kernel: e1000e: Copyright (c) 1999 - 2009 Intel Corporation.
-Aug 15 15:13:29 agent31 kernel: e1000e 0000:00:19.0: PCI INT B -&amp;gt; GSI 19 (level, low) -&amp;gt; IRQ 19
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Down
-Aug 15 15:13:29 agent31 kernel: e1000e: eth0 NIC Link is Up 100 Mbps Full Duplex, Flow Control: RX/TX
-......
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Diese Meldungen passen zu dem Verhalten, der an der NIC verbauten LEDs,
-welche ein rhythmisches Wechseln zwischen orange und grün vollziehen.
-Nach einer ausführlichen Recherche und dem Booten eines
-&lt;a href=&#34;http://fedoraproject.org&#34; title=&#34;http://fedoraproject.org&#34;&gt;Fedora&lt;/a&gt; 15, wo das
-Problem nicht auftritt, konnte es nur an der eingesetzten Version des
-&lt;code&gt;e1000e&lt;/code&gt;-Treibers liegen. Wenn man dann auch noch die Tatsache beachtet,
-dass der Kernel 2.6.32 als Basis für RHEL6 und alle seine Derivate
-dient, ist dies noch warscheinlicher.&lt;/p&gt;
-
-&lt;p&gt;Das &lt;a href=&#34;http://elrepo.org&#34; title=&#34;http://elrepo.org&#34;&gt;ELRepo-Projekt&lt;/a&gt; stellt
-einige Pakete mit aktuellen Treibern für RHEL-kompatible Distributionen
-bereit, darunter auch einen aktuellen &lt;code&gt;e1000e&lt;/code&gt;. Folgende Befehle binden
-das Repository ein und installieren dann den entsprechenden &lt;code&gt;kmod&lt;/code&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;rpm -Uvh http://elrepo.org/elrepo-release-6-4.el6.elrepo.noarch.rpm
-yum -y install kmod-e1000e
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Nach einem Reboot sollte die neue Version des &lt;code&gt;e1000e&lt;/code&gt; benutzt werden
-und dementsprechend das oben beschriebene Problem nicht mehr auftreten.&lt;/p&gt;
 </description>
     </item>
     
