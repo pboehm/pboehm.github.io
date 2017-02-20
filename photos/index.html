@@ -22,9 +22,9 @@
     
 
     
-    <meta name="description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;http://flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
+    <meta name="description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;//flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
 &#39;; $(image).appendTo(&#34;#images&#34;); }); $(&#34;img.lazy&#34;).lazyload({ effect : &#34;fadeIn&#34; }); }); });  ">
-    <meta property="og:description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;http://flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
+    <meta property="og:description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;//flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
 &#39;; $(image).appendTo(&#34;#images&#34;); }); $(&#34;img.lazy&#34;).lazyload({ effect : &#34;fadeIn&#34; }); }); });  ">
     <meta property="og:type" content="blog">
     <meta property="og:title" content="Latest Photos on Flickr">
@@ -32,7 +32,7 @@
     <meta property="og:site_name" content="/dev/pboehm">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="/dev/pboehm">
-    <meta name="twitter:description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;http://flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
+    <meta name="twitter:description" content=".flickr_image_container { margin-bottom: 30px; position: relative; } .flickr_image_container img { position: relative; left:0; top:0; } .flickr_image_title { z-index: 100; position: absolute; color: rgb(231, 230, 230); font-size: 14px; left: 0px; bottom: 6px; padding: 3px 15px; margin: 0px !important; background: rgba(0, 0, 0, 0.5); }   $(document).ready(function() { $.getJSON(&#34;//flickrit.pboehm.org/photos/phboehm&#34;, function(data){ $.each(data, function(i,item){ var image = &#39;&#39; &#43; &#39;&#39; &#43; &#39;&#39; &#43; item.title &#43; &#39;
 &#39;; $(image).appendTo(&#34;#images&#34;); }); $(&#34;img.lazy&#34;).lazyload({ effect : &#34;fadeIn&#34; }); }); });  ">
     
       <meta name="twitter:creator" content="@phboehm">
@@ -269,7 +269,7 @@
 
 <script type="text/javascript" charset="utf-8">
     $(document).ready(function() {
-        $.getJSON("http://flickrit.pboehm.org/photos/phboehm", function(data){
+        $.getJSON("//flickrit.pboehm.org/photos/phboehm", function(data){
             $.each(data, function(i,item){
                 var image =
                     '<div class="flickr_image_container">' +
